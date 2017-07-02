@@ -21,12 +21,12 @@ u32 octree_allocate(octree * oct){
   if(oct->count == oct->capacity){
     u64 newcap = MAX(oct->capacity * 2, 8);
     u64 deltacap = newcap - oct->capacity;
-    oct->type = ralloc(oct->type, newcap * 8 * sizeof(octree_node_kind));
-    memset(oct->type + oct->capacity * 8, 0, deltacap * 8 * sizeof(u32));
-    oct->payload = ralloc(oct->payload, newcap * sizeof(u32));
-    memset(oct->payload + oct->capacity, 0, deltacap * sizeof(u32));
-    oct->sub_nodes = ralloc(oct->sub_nodes, newcap * 8 * sizeof(u32));
-    memset(oct->sub_nodes + oct->capacity * 8, 0, deltacap * sizeof(u32));    
+    oct->type = ralloc(oct->type, newcap * 8 * sizeof(oct->type[0]));
+    memset(oct->type + oct->capacity * 8, 0, deltacap * 8 * sizeof(oct->type[0]));
+    oct->payload = ralloc(oct->payload, newcap * sizeof(oct->payload[0]));
+    memset(oct->payload + oct->capacity, 0, deltacap * sizeof(oct->payload[0]));
+    oct->sub_nodes = ralloc(oct->sub_nodes, newcap * 8 * sizeof(oct->sub_nodes[0]));
+    memset(oct->sub_nodes + oct->capacity * 8, 0, deltacap * 8 * sizeof(oct->sub_nodes[0]));    
     oct->capacity = newcap;
   }
   return oct->count++;

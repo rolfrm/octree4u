@@ -1,17 +1,19 @@
 #version 410
 
-uniform float size;
+uniform vec3 size;
 uniform vec3 position;
-in vec2 vertex;
 #define M_PI 3.1415926535897932384626433832795
+
+float xs[6] = float[](0, 1, 0, 1, 0, 1);
+float ys[6] = float[](0, 0, 0, 1, 1, 1);
+float zs[6] = float[](0, 0, 1, 0, 1, 1); 
+
 void main(){
-     float angle = 2 * M_PI / 8;
-     vec4 p = vec4(vertex * size * sqrt(0.5),0,1);
-     p.y += position.y * sqrt(0.5)  + (position.z + position.x) * cos(angle);
-    
-     p.x += (position.x - position.z) * sin(angle);
-     p.y *= 1;
-     p.xy -= vec2(0.0, 1);
-     p.xy *= 0.9;
-     gl_Position = p;
+     vec3 p = vec3(xs[gl_VertexID], ys[gl_VertexID], zs[gl_VertexID]) * size;
+     float angle = 2 * M_PI / 8;	
+     p += position;
+     
+     vec2 vertex = vec2((p.x - p.z) * sin(angle), p.y + (p.x + p.z) * cos(angle) - 1);
+     
+     gl_Position = vec4(vertex, 0, 1);
 }

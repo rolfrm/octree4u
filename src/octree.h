@@ -38,9 +38,13 @@ struct _octree_iterator;
 typedef struct _octree_iterator octree_iterator;
 
 octree_iterator * octree_iterator_new(octree_index start_index);
+octree_iterator * octree_iterator_clone(const octree_iterator *);
 void octree_iterator_destroy(octree_iterator ** it);
 void octree_iterator_child(octree_iterator * it, int x, int y, int z);
 void octree_iterator_parent(octree_iterator * it);
 void octree_iterator_move(octree_iterator * it, int rx, int ry, int rz);
+bool octree_iterator_try_move(octree_iterator * it, int rx, int ry, int rz);
 void octree_iterator_destroy(octree_iterator ** it);
-u32 * octree_iterator_payload(octree_iterator * it);
+u32 * octree_iterator_payload(const octree_iterator * it);
+void octree_iterator_iterate(octree_iterator * it, float size, vec3 p,
+			     void (* f)(const octree_iterator * i, float s, vec3 p));

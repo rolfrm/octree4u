@@ -188,8 +188,9 @@ int main(){
   
   octree * submodel = octree_new();
   
-  octree_index_get_payload(octree_index_get_childi(submodel->first_index, 0))[0] = i3;
-  octree_index_get_payload(octree_index_get_childi(submodel->first_index, 2))[0] = i3; 
+  //octree_index_get_payload(octree_index_get_childi(submodel->first_index, 0))[0] = i3;
+  octree_index_get_payload(octree_index_get_childi(submodel->first_index, 2))[0] = i3;
+  //octree_index_get_payload(octree_index_get_childi(submodel->first_index, 1))[0] = i3; 
 
   entity_ctx->model[e1] = submodel->first_index;
 
@@ -203,6 +204,7 @@ int main(){
     idx = octree_index_get_childi(idx, (u8) 2);
     }*/
   octree_iterator * it = octree_iterator_new(idx);
+  //octree_iterator_child(it, 0, 1, 0);
   octree_iterator_child(it, 0, 0, 0);
   octree_iterator_child(it, 0, 1, 0);
   octree_iterator_child(it, 0, 0, 0);
@@ -241,6 +243,45 @@ int main(){
   }
   
   octree_iterator_destroy(&it);
+
+  it = octree_iterator_new(idx);
+  void fix_collisions(const octree_iterator * i, float s, vec3 p){
+    UNUSED(i);
+    UNUSED(p);
+    u32 id = octree_iterator_payload(i)[0];
+    if(id == 0) return;
+    u32 type = game_ctx->entity_type[id];
+    u32 val = game_ctx->entity_id[id];
+    if(type == GAME_ENTITY){
+      vec3 offset = entity_ctx->offset[val];
+      vec3 r = vec3_new(floorf(offset.x), floorf(offset.y), floorf(offset.z));
+      if(vec3_sqlen(vec3_abs(r)) < 0.1)
+	return;
+      int x = (int)r.x, y = (int)r.y, z = (int)r.z;
+      octree_iterator * i2 = octree_iterator_clone(i);
+      if(!octree_iterator_try_move(i2, x, y, z)){
+	return;
+      }
+
+      u32 current_payload = octree_iterator_payload(i2)[0];
+      if(false && current_payload != 0){
+	// collision problem..
+	entity_ctx->offset[val] = vec3_zero;
+	
+      }else{
+	octree_iterator_payload(i)[0] = 0;
+	octree_iterator_payload(i2)[0] = id;
+	entity_ctx->offset[val] = vec3_sub(entity_ctx->offset[val], r);
+
+	logd("%f ", s); vec3_print(r);logd("\n");
+	logd("Found entity!\n");
+      }
+      octree_iterator_destroy(&i2);      
+    }
+  }
+
+  
+  
   glfwInit();
   glfwWindowHint( GLFW_OPENGL_DEBUG_CONTEXT, true);
   GLFWwindow * win = glfwCreateWindow(512, 512, "Octree Rendering", NULL, NULL);
@@ -255,14 +296,16 @@ int main(){
   glAttachShader(prog, fs);
   glLinkProgram(prog);
   glUseProgram(prog);
-  double data[] = {0,0, -1,1, 1,1, -1,2, 1,2, 0, 3};
-  u32 buffer;
-  glGenBuffers(1, &buffer);
-  glBindBuffer(GL_ARRAY_BUFFER, buffer);
-  glBufferData(GL_ARRAY_BUFFER, sizeof(data), data, GL_STATIC_DRAW);
-  glEnableVertexAttribArray(0);
-  glVertexAttribPointer(0, 2, GL_DOUBLE, false, 0, NULL);
+  //double data[] = {0,0, -1,1, 1,1, -1,2, 1,2, 0, 3};
+  //u32 buffer;
+  //glGenBuffers(1, &buffer);
+  //glBindBuffer(GL_ARRAY_BUFFER, buffer);
+  //glBufferData(GL_ARRAY_BUFFER, sizeof(data), data, GL_STATIC_DRAW);
+  //glEnableVertexAttribArray(0);
+  //glVertexAttribPointer(0, 2, GL_DOUBLE, false, 0, NULL);
 
+  vec3 bound_lower = vec3_zero;
+  vec3 bound_upper = vec3_one;
   void rendervoxel(octree_index index, float size, vec3 p){
     u32 color = octree_index_get_payload(index)[0];
     if(color == 0) return;
@@ -271,21 +314,41 @@ int main(){
     if(type == GAME_ENTITY){
 
       octree_index index2 = entity_ctx->model[id];
-      if(index2.oct != NULL)
+      if(index2.oct != NULL){
+	vec3 prev_bound_lower = bound_lower;
+	vec3 prev_bound_upper = bound_upper;
+	bound_lower = p;
+	bound_upper = vec3_add(p, vec3_new1(size));
 	octree_iterate(index2, size, vec3_add(p, vec3_scale(entity_ctx->offset[id], size)), rendervoxel);
+	bound_lower = prev_bound_lower;
+	bound_upper = prev_bound_upper;
+	
+      }
       return;
     }
     color = id;
     float r = (color % 4) * 0.25f;
     float g = ((color / 3) % 4) * 0.25;
     float b = ((color / 5) % 4) * 0.25;
+  
     glUniform4f(glGetUniformLocation(prog, "color"), r, g, b, 1.0);
     glUniform3f(glGetUniformLocation(prog, "position"), p.x, p.y, p.z);
-    glUniform1f(glGetUniformLocation(prog, "size"), size);
+    vec3 s = vec3_new(size, size, size);
+
+    if(bound_upper.x < 1.0){
+      
+      vec3 p2 = vec3_add(p, s);
+
+      s = vec3_sub(vec3_min(p2, bound_upper), p);
+      if(s.x <= 0 || s.y <= 0 || s.z <= 0)
+	return;
+    }
+    glUniform3f(glGetUniformLocation(prog, "size"), s.x, s.y, s.z);
+      
+
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 6);
   }
 
-  float t = 0.0;
   while(glfwWindowShouldClose(win) == false){
     int width = 0, height = 0;
     glfwGetWindowSize(win,&width, &height);
@@ -295,8 +358,17 @@ int main(){
     octree_iterate(oct->first_index, 1, vec3_new(0, 0, 0), rendervoxel);
     glfwSwapBuffers(win);
     glfwPollEvents();
+    int up = glfwGetKey(win, GLFW_KEY_UP);
+    int down = glfwGetKey(win, GLFW_KEY_DOWN);
+    int right = glfwGetKey(win, GLFW_KEY_RIGHT);
+    int left = glfwGetKey(win, GLFW_KEY_LEFT);
+    int w = glfwGetKey(win, GLFW_KEY_W);
+    int s = glfwGetKey(win, GLFW_KEY_S);
+    vec3 move = vec3_new((right - left) * 0.03, (w - s) * 0.03, (up - down) * 0.03);
+    entity_ctx->offset[e1] = vec3_add(entity_ctx->offset[e1], move);
+    //vec3_print(entity_ctx->offset[e1]);logd("\n");
     iron_sleep(0.01);
-    t += 0.03;
-    entity_ctx->offset[e1] = vec3_new(round(sin(t) * 2) * 0.5, 0, round(cos(t) * 4) * 0.25);
+    octree_iterator_iterate(it, 1, vec3_zero, fix_collisions);
+      
   }
 }
