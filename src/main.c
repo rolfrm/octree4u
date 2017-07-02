@@ -105,6 +105,11 @@ typedef struct{
   u32 * entity_id;
   u32 count;
   u32 capacity;
+
+  u32 * free_indexes;
+  u32 free_count;
+  u32 free_capacity;
+  
 }game_context;
 u32 game_context_alloc(game_context * ctx);
 game_context * game_context_new(){
@@ -116,15 +121,33 @@ game_context * game_context_new(){
 
 // Allocates a game entitiy.
 u32 game_context_alloc(game_context * ctx){
+  if(ctx->free_count > 0){
+    u32 newidx = ctx->free_indexes[ctx->free_count - 1];
+    ctx->free_indexes[ctx->free_count - 1] = 0;
+    ctx->free_count -= 1;
+    return newidx;
+  }
   if(ctx->count == ctx->capacity){
     u64 newcap = MAX(ctx->capacity * 2, 8);
     ctx->entity_id = ralloc(ctx->entity_id, newcap * sizeof(ctx->entity_id[0]));
     ctx->entity_type = ralloc(ctx->entity_type, newcap * sizeof(ctx->entity_type[0]));
+    ctx->capacity = newcap;
   }
   u32 newidx = ctx->count++;
   ctx->entity_id[newidx] = 0;
   ctx->entity_type[newidx] = 0;
   return newidx;
+}
+
+void game_context_free(game_context * ctx, u32 index){
+
+  if(ctx->free_count == ctx->free_capacity){
+    u64 newcap = MAX(ctx->free_capacity * 2, 8);
+    ctx->free_indexes = ralloc(ctx->free_indexes, newcap * sizeof(ctx->free_indexes[0]));
+    ctx->free_capacity = newcap;
+  }
+  ctx->free_indexes[ctx->free_count] = index;
+  ctx->free_count += 1;
 }
 
 u32 entities_alloc(entities * ctx);
@@ -141,12 +164,36 @@ u32 entities_alloc(entities * ctx){
     u64 newcap = MAX(ctx->capacity * 2, 8);
     ctx->offset = ralloc(ctx->offset, newcap * sizeof(ctx->offset[0]));
     ctx->model = ralloc(ctx->model, newcap * sizeof(ctx->model[0]));
+    ctx->capacity = newcap;
+  }
+
+  u32 newidx = ctx->count;
+  ctx->offset[newidx] = vec3_zero;
+  ctx->model[newidx] = (octree_index){0};
+  ctx->count += 1;
+  return newidx;
+}
+
+u32 entity_sub_offset_alloc(entity_sub_offset * ctx){
+  if(ctx->count == ctx->capacity){
+    u64 newcap = MAX(ctx->capacity * 2, 8);
+    ctx->offset = ralloc(ctx->offset, newcap * sizeof(ctx->offset[0]));
+    ctx->entity = ralloc(ctx->entity, newcap * sizeof(ctx->entity[0]));
+    ctx->capacity = newcap;
   }
   u32 newidx = ctx->count++;
   ctx->offset[newidx] = vec3_zero;
-  ctx->model[newidx] = (octree_index){0};
+  ctx->entity[newidx] = 0;
   return newidx;
 }
+
+
+entity_sub_offset * entity_sub_offset_new(){
+  entity_sub_offset * gctx = alloc0(sizeof(entity_sub_offset));
+  entity_sub_offset_alloc(gctx); 
+  return gctx;
+}
+
 
 
 void octree_test();
@@ -188,12 +235,12 @@ int main(){
   
   octree * submodel = octree_new();
   
-  //octree_index_get_payload(octree_index_get_childi(submodel->first_index, 0))[0] = i3;
+  octree_index_get_payload(octree_index_get_childi(submodel->first_index, 0))[0] = i3;
   octree_index_get_payload(octree_index_get_childi(submodel->first_index, 2))[0] = i3;
-  //octree_index_get_payload(octree_index_get_childi(submodel->first_index, 1))[0] = i3; 
+  octree_index_get_payload(octree_index_get_childi(submodel->first_index, 1))[0] = i3; 
 
   entity_ctx->model[e1] = submodel->first_index;
-
+  entity_sub_offset * entity_sub_ctx = entity_sub_offset_new();
   octree * oct = octree_new();
   octree_index idx = oct->first_index;
   /*for(u32 j = 0; j < 3; j++){
@@ -244,10 +291,62 @@ int main(){
   
   octree_iterator_destroy(&it);
 
+  void remove_subs(const octree_index index, float s, vec3 p){
+    UNUSED(s);
+    UNUSED(p);
+    u32 payload = octree_index_get_payload(index)[0];
+    if(payload == 0)
+      return;
+    if(game_ctx->entity_type[payload] != GAME_ENTITY_SUB_ENTITY)
+      return;
+    game_ctx->entity_type[payload] = 0;
+    game_ctx->entity_id[payload] = 0;
+    octree_index_get_payload(index)[0] = 0;
+    game_context_free(game_ctx, payload);
+  }
+  
+  void gen_subs(const octree_iterator * i, float s, vec3 p){
+    UNUSED(p);
+    UNUSED(s);
+    u32 id = octree_iterator_payload(i)[0];
+    if(id == 0) return;
+    u32 type = game_ctx->entity_type[id];
+    u32 val = game_ctx->entity_id[id];
+    if(type != GAME_ENTITY) return;
+    vec3 offset = entity_ctx->offset[val];
+
+    if(vec3_sqlen(vec3_abs(offset)) < 0.001)
+      return;
+    octree_iterator * i2 = octree_iterator_clone(i);
+
+    for(int i = 1; i < 8; i++){
+      int dim[] = {i % 2, (i / 2) % 2, (i / 4) % 2};
+      if(octree_iterator_try_move(i2, dim[0], dim[1], dim[2])){
+
+	if(octree_iterator_payload(i2)[0] == 0){
+	  u32 xnode_ent = game_context_alloc(game_ctx);
+	  u32 xnode = entity_sub_offset_alloc(entity_sub_ctx);
+	  vec3 newoffset = vec3_zero;
+	  for(int j = 0; j < 3; j++)
+	    newoffset.data[j] -= dim[j];	
+	  entity_sub_ctx->offset[xnode] = newoffset;
+	  entity_sub_ctx->entity[xnode] = id;
+	  octree_iterator_payload(i2)[0] = xnode_ent;
+	  game_ctx->entity_type[xnode_ent] = GAME_ENTITY_SUB_ENTITY;
+	  game_ctx->entity_id[xnode_ent] = xnode;
+	}
+	octree_iterator_move(i2, -dim[0], -dim[1], -dim[2]);  
+      }
+    }
+    octree_iterator_destroy(&i2);
+  }
+  
+  vec3 bound_lower = vec3_zero;
+  vec3 bound_upper = vec3_one;
   it = octree_iterator_new(idx);
   void fix_collisions(const octree_iterator * i, float s, vec3 p){
-    UNUSED(i);
     UNUSED(p);
+    UNUSED(s);
     u32 id = octree_iterator_payload(i)[0];
     if(id == 0) return;
     u32 type = game_ctx->entity_type[id];
@@ -273,8 +372,8 @@ int main(){
 	octree_iterator_payload(i2)[0] = id;
 	entity_ctx->offset[val] = vec3_sub(entity_ctx->offset[val], r);
 
-	logd("%f ", s); vec3_print(r);logd("\n");
-	logd("Found entity!\n");
+	//logd("%f ", s); vec3_print(r);logd("\n");
+	//logd("Found entity!\n");
       }
       octree_iterator_destroy(&i2);      
     }
@@ -296,23 +395,35 @@ int main(){
   glAttachShader(prog, fs);
   glLinkProgram(prog);
   glUseProgram(prog);
-  //double data[] = {0,0, -1,1, 1,1, -1,2, 1,2, 0, 3};
-  //u32 buffer;
-  //glGenBuffers(1, &buffer);
-  //glBindBuffer(GL_ARRAY_BUFFER, buffer);
-  //glBufferData(GL_ARRAY_BUFFER, sizeof(data), data, GL_STATIC_DRAW);
-  //glEnableVertexAttribArray(0);
-  //glVertexAttribPointer(0, 2, GL_DOUBLE, false, 0, NULL);
 
-  vec3 bound_lower = vec3_zero;
-  vec3 bound_upper = vec3_one;
   void rendervoxel(octree_index index, float size, vec3 p){
     u32 color = octree_index_get_payload(index)[0];
     if(color == 0) return;
     u32 type = game_ctx->entity_type[color];
     u32 id = game_ctx->entity_id[color];
-    if(type == GAME_ENTITY){
 
+    if(type == GAME_ENTITY_SUB_ENTITY){
+      vec3 add_offset = entity_sub_ctx->offset[id];
+      id = entity_sub_ctx->entity[id];
+      type = GAME_ENTITY;
+      octree_index index2 = entity_ctx->model[id];
+      if(index2.oct != NULL){
+
+	vec3 prev_bound_lower = bound_lower;
+	vec3 prev_bound_upper = bound_upper;
+	
+	bound_lower = p;
+	bound_upper = vec3_add(p, vec3_new1(size));
+	vec3 sub_p = vec3_add(p, vec3_scale(vec3_add(entity_ctx->offset[id], add_offset), size));
+	octree_iterate(index2, size,sub_p,rendervoxel);
+	bound_lower = prev_bound_lower;
+	bound_upper = prev_bound_upper;
+	
+      }
+      return;
+    }
+    
+    if(type == GAME_ENTITY){
       octree_index index2 = entity_ctx->model[id];
       if(index2.oct != NULL){
 	vec3 prev_bound_lower = bound_lower;
@@ -330,15 +441,21 @@ int main(){
     float r = (color % 4) * 0.25f;
     float g = ((color / 3) % 4) * 0.25;
     float b = ((color / 5) % 4) * 0.25;
-  
+    
     glUniform4f(glGetUniformLocation(prog, "color"), r, g, b, 1.0);
-    glUniform3f(glGetUniformLocation(prog, "position"), p.x, p.y, p.z);
+
     vec3 s = vec3_new(size, size, size);
-
+    for(int j = 0; j < 3; j++){
+      if(p.data[j] < bound_lower.data[j]){
+	s.data[j] -= (bound_lower.data[j] - p.data[j]);
+	p.data[j] =bound_lower.data[j];
+	
+      }
+    }
+    glUniform3f(glGetUniformLocation(prog, "position"), p.x, p.y, p.z);
     if(bound_upper.x < 1.0){
-      
       vec3 p2 = vec3_add(p, s);
-
+      
       s = vec3_sub(vec3_min(p2, bound_upper), p);
       if(s.x <= 0 || s.y <= 0 || s.z <= 0)
 	return;
@@ -350,10 +467,18 @@ int main(){
   }
 
   while(glfwWindowShouldClose(win) == false){
+
+    octree_iterate(oct->first_index, 1, vec3_zero, remove_subs); // remove sub entities
+    entity_sub_ctx->count = 0; // clear the list.
+    octree_iterator_iterate(it, 1, vec3_zero, gen_subs); //recreate
+
+
+    
     int width = 0, height = 0;
     glfwGetWindowSize(win,&width, &height);
     if(width > 0 && height > 0)
-      glViewport(0, 0, width, height); 
+      glViewport(0, 0, width, height);
+
     glClear(GL_COLOR_BUFFER_BIT);
     octree_iterate(oct->first_index, 1, vec3_new(0, 0, 0), rendervoxel);
     glfwSwapBuffers(win);
