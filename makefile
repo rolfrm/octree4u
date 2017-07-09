@@ -4,12 +4,10 @@ LIB_SOURCES = $(addprefix src/, $(LIB_SOURCES1))
 CC = gcc
 TARGET = run.exe
 LIB_OBJECTS =$(LIB_SOURCES:.c=.o)
-LDFLAGS= -L. $(OPT) -Wextra -fstack-protector-all -Wstack-protector --param ssp-buffer-size=4 -pie -ftrapv -D_FORTIFY_SOURCE=2
-LIBS= -liron -lGL -lGLEW -lglfw -lm
+LDFLAGS= -L. $(OPT) -Wextra -fstack-protector-all -Wstack-protector --param ssp-buffer-size=4  -ftrapv -D_FORTIFY_SOURCE=2
+LIBS= -liron -lGL -lGLEW -lglfw -lm -lubsan
 ALL= $(TARGET)
-CFLAGS = -Isrc/ -Iinclude/ -std=gnu11 -c $(OPT) -Wall -Wextra -Werror=implicit-function-declaration -Wformat=0 -D_GNU_SOURCE -fdiagnostics-color -Wextra  -Wwrite-strings -Werror -msse4.2 -Werror=maybe-uninitialized -fstack-protector-all -Wstack-protector --param ssp-buffer-size=4 -pie -ftrapv -D_FORTIFY_SOURCE=2 -Wl,dynamicbase
-
-
+CFLAGS = -Isrc/ -Iinclude/ -std=gnu11 -c $(OPT) -Wall -Wextra -Werror=implicit-function-declaration -Wformat=0 -D_GNU_SOURCE -fdiagnostics-color -Wextra  -Wwrite-strings -Werror -msse4.2 -Werror=maybe-uninitialized -fstack-protector-all -Wstack-protector --param ssp-buffer-size=4  -ftrapv -D_FORTIFY_SOURCE=2 -Wl,dynamicbase -fsanitize=undefined -fno-sanitize-recover
 
 $(TARGET): $(LIB_OBJECTS)
 	$(CC) $(LDFLAGS) $(LIB_OBJECTS) $(LIBS) -o $@
