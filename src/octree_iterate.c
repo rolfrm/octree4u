@@ -200,6 +200,10 @@ u32 * octree_iterator_payload(const octree_iterator * it){
   return octree_index_get_payload(it->indexstack[it->count - 1]);
 }
 
+octree_index octree_iterator_index(const octree_iterator * it){
+  ASSERT(it->count > 0);
+  return it->indexstack[it->count - 1];
+}
 
 
 int octree_test(){

@@ -90,3 +90,4 @@ u32 * octree_index_get_payload(octree_index index){
   }
   return octree_index_get_payload(octree_index_expand(index));
 }
+
