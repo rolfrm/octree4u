@@ -194,6 +194,7 @@ u32 list_entity_alloc(list_entity * lst){
     lst->id = ralloc(lst->id, newcapacity * sizeof(lst->id[0]));
     lst->next = ralloc(lst->next, newcapacity * sizeof(lst->next[0]));
     lst->capacity = newcapacity;
+    logd("Alloc %i\n", lst->capacity);
   }
   u32 newidx = lst->count++;
   lst->id[newidx] = 0;
@@ -350,7 +351,6 @@ void render_color(u32 color, float size, vec3 p){
       octree_iterate(index2, size,sub_p,rendervoxel);
       bound_lower = prev_bound_lower;
       bound_upper = prev_bound_upper;
-      
     }
     return;
   }
@@ -439,7 +439,8 @@ int main(){
   u32 l3 = list_entity_push(game_ctx->lists, 0, i3);
   u32 l1 = list_entity_push(game_ctx->lists, 0, i1);
   u32 l5 = list_entity_push(game_ctx->lists, 0, i5);
-  
+  u32 l4 = list_entity_push(game_ctx->lists, 0, i4);
+  u32 l2 = list_entity_push(game_ctx->lists, 0, i2);
   octree * submodel = octree_new();
   
   octree_index_get_payload(octree_index_get_childi(submodel->first_index, 0))[0] = l3;
@@ -462,11 +463,12 @@ int main(){
   for(int j = 0; j < 5; j++){
     for(int i = 0; i < 5; i++){
       octree_iterator_move(it,1, 0, 0);
-      octree_iterator_payload(it)[0] = current_color;
-      if(current_color == l3)
-	current_color = l5;
+      if(i != 2 && j != 2)
+	octree_iterator_payload(it)[0] = current_color;
+      if(current_color == l2)
+	current_color = l4;
       else
-	current_color = l3;
+	current_color = l2;
     }
     octree_iterator_move(it,-5, 0, 1);  
   }
@@ -627,6 +629,7 @@ int main(){
     int s = glfwGetKey(win, GLFW_KEY_S);
     vec3 move = vec3_new((right - left) * 0.03, (w - s) * 0.03, (up - down) * 0.03);
     game_ctx->entity_ctx->offset[e1] = vec3_add(game_ctx->entity_ctx->offset[e1], move);
+    
     //vec3_print(game_ctx->entity_ctx->offset[e1]);logd("\n");
     iron_sleep(0.01);
     octree_iterator_iterate(it, 1, vec3_zero, fix_collisions);
