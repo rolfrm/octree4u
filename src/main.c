@@ -206,12 +206,11 @@ u32 list_entity_alloc(list_entity * lst){
 u32 list_entity_push(list_entity * lst, u32 head, u32 value){
   ASSERT(head < lst->count);
   u32 newidx = list_entity_alloc(lst);
+  ASSERT(newidx != head);
   lst->next[newidx] = head;
   lst->id[newidx] = value;
   return newidx;
 }
-
-
 
 u32 list_entity_pop(list_entity * lst, u32 head){
   ASSERT(head != 0);
@@ -251,7 +250,13 @@ list_index list_index_pop(list_index lst){
     
     octree_index_get_payload(lst.origin)[0] = lst.ptr;
   }else{
+    u32 prev = lst.list_id;
+    while(game_ctx->lists->next[prev] != lst.ptr){
+      ASSERT(prev != 0);
+      prev = game_ctx->lists->next[prev];
+    }
     lst.ptr = list_entity_pop(game_ctx->lists, lst.ptr);
+    game_ctx->lists->next[prev] = lst.ptr;
   }
   ASSERT(lst.ptr == 0 || game_ctx->lists->next[lst.ptr] != lst.ptr);
   return lst;
@@ -264,7 +269,13 @@ list_index list_index_push(list_index lst, u32 val){
     lst.list_id = lst.ptr;
     octree_index_get_payload(lst.origin)[0] = lst.ptr;
   }else{
+    u32 prev = lst.list_id;
+    while(game_ctx->lists->next[prev] != lst.ptr){
+      ASSERT(prev != 0);
+      prev = game_ctx->lists->next[prev];
+    }
     lst.ptr = list_entity_push(game_ctx->lists, lst.ptr, val);
+    game_ctx->lists->next[prev] = lst.ptr;
   }
   ASSERT(game_ctx->lists->next[lst.ptr] != lst.ptr);
   ASSERT(list_index_get(lst) != 0);
