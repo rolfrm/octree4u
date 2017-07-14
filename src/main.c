@@ -135,12 +135,14 @@ u32 entities_alloc(entities * ctx){
     u64 newcap = MAX(ctx->capacity * 2, 8);
     ctx->offset = ralloc(ctx->offset, newcap * sizeof(ctx->offset[0]));
     ctx->model = ralloc(ctx->model, newcap * sizeof(ctx->model[0]));
+    ctx->offset_next = ralloc(ctx->offset_next, newcap * sizeof(ctx->offset_next[0]));
     ctx->capacity = newcap;
   }
 
   u32 newidx = ctx->count;
   ctx->offset[newidx] = vec3_zero;
   ctx->model[newidx] = (octree_index){0};
+  ctx->offset_next[newidx] = vec3_zero;
   ctx->count += 1;
   return newidx;
 }
@@ -194,7 +196,6 @@ u32 list_entity_alloc(list_entity * lst){
     lst->id = ralloc(lst->id, newcapacity * sizeof(lst->id[0]));
     lst->next = ralloc(lst->next, newcapacity * sizeof(lst->next[0]));
     lst->capacity = newcapacity;
-    logd("Alloc %i\n", lst->capacity);
   }
   u32 newidx = lst->count++;
   lst->id[newidx] = 0;
@@ -224,13 +225,13 @@ u32 list_entity_pop(list_entity * lst, u32 head){
   return newhead;
 }
 
-list_index octree_index_get_payload_list(const octree_index index){
+list_index octree_index_payload_list(const octree_index index){
   u32 list_id = octree_index_get_payload(index)[0];
   return (list_index){list_id, list_id, index};
 }
 
 list_index octree_iterator_payload_list(const octree_iterator * index){
-  return octree_index_get_payload_list(octree_iterator_index(index));
+  return octree_index_payload_list(octree_iterator_index(index));
 }
 
 u32 list_index_get(list_index lst){
@@ -401,13 +402,72 @@ void render_color(u32 color, float size, vec3 p){
 }
     
 void rendervoxel(octree_index index, float size, vec3 p){
-  list_index lst = octree_index_get_payload_list(index);
+  list_index lst = octree_index_payload_list(index);
   for(; lst.ptr != 0; lst = list_index_next(lst)){
     u32 color = list_index_get(lst);
     ASSERT(color != 0);
     render_color(color, size, p);
   }
 }
+
+typedef struct{
+  u32 id;
+  float size;
+  vec3 pos;
+}entity_stack_item;
+
+typedef struct{
+  u32 capacity;
+  u32 count;
+  u32 elem_size;
+  u32 magic;
+}item_list_impl;
+
+const u32 item_list_magic = 0xFF43AA54;
+
+void * item_list_new(u32 elem_size){
+  item_list_impl * ilist = alloc0(sizeof(item_list_impl));
+  ilist->magic = item_list_magic;
+  ilist->elem_size = elem_size;
+  return &ilist[1];
+}
+
+void * item_list_push(void * item_list_ptr){
+  item_list_impl ** p_ilist = item_list_ptr;
+  item_list_impl * ilist = *p_ilist;
+  ilist = &ilist[-1];
+  ASSERT(ilist->magic == item_list_magic);
+  if(ilist->capacity == ilist->count){
+    u32 newcap = MAX(8, ilist->capacity * 2);
+    ilist = ralloc(ilist, sizeof(ilist[0]) + newcap * ilist->elem_size);
+    ilist->capacity = newcap;
+  }
+  *p_ilist = (ilist + 1);
+  ilist->count++;
+  return (void *)(ilist + 1) + (ilist->count - 1) * ilist->elem_size;
+}
+
+u32 item_list_count(void * item_list){
+  item_list_impl * ilist = item_list;
+  ilist = ilist - 1;
+  return ilist->count;
+}
+
+void item_list_destroy(void * item_list_ptr){
+  item_list_impl ** p_ilist = item_list_ptr;
+  item_list_impl * ilist = (*p_ilist) - 1;
+   ASSERT(ilist->magic == item_list_magic);
+  dealloc(ilist);
+  *p_ilist = NULL;
+}
+
+void item_list_pop(void * item_list_ptr){
+  item_list_impl ** p_ilist = item_list_ptr;
+  item_list_impl * ilist = (*p_ilist) - 1;
+     ASSERT(ilist->magic == item_list_magic);
+  ilist->count -= 1;
+}
+
 
 int main(){
   list_entity_test();
@@ -507,7 +567,7 @@ int main(){
       game_context_free(game_ctx, payload);
       return true;
     }
-    list_index lst = octree_index_get_payload_list(index);
+    list_index lst = octree_index_payload_list(index);
     while(lst.ptr != 0){
       if(remove_sub(list_index_get(lst))){
 	lst = list_index_pop(lst);
@@ -548,21 +608,23 @@ int main(){
 	      game_ctx->entity_id[xnode_ent] = xnode;
 	      let l3 = list_index_push(l2, xnode_ent);
 	      UNUSED(l3);
-	      }
-	      octree_iterator_move(i2, -dim[0], -dim[1], -dim[2]);  
 	    }
-	  octree_iterator_destroy(&i2);
+	    octree_iterator_move(i2, -dim[0], -dim[1], -dim[2]);  
 	  }
+	  octree_iterator_destroy(&i2);
 	}
       }
     }
+  }
 
+  
   it = octree_iterator_new(idx);
   void fix_collisions(const octree_iterator * i, float s, vec3 p){
     UNUSED(p);
     UNUSED(s);
     list_index lst = octree_iterator_payload_list(i);
     for(;lst.ptr != 0; lst = list_index_next(lst)){
+      
       u32 id = list_index_get(lst);
       u32 type = game_ctx->entity_type[id];
       u32 val = game_ctx->entity_id[id];
@@ -577,17 +639,78 @@ int main(){
 	  return;
 
 	list_index lst2 = octree_iterator_payload_list(i2);
-	if(false){
-	  // collision problem..
-	  game_ctx->entity_ctx->offset[val] = vec3_zero;
-	}else{
-	  lst = list_index_pop(lst);
-	  lst = list_index_push(lst2, id);
-	  game_ctx->entity_ctx->offset[val] = vec3_sub(game_ctx->entity_ctx->offset[val], r);
-	}
+	lst = list_index_pop(lst);
+	lst = list_index_push(lst2, id);
+	game_ctx->entity_ctx->offset[val] = vec3_sub(game_ctx->entity_ctx->offset[val], r);
+	
 	octree_iterator_destroy(&i2);      
       }
     }
+  }
+
+  entity_stack_item * entity_stack = item_list_new(sizeof(entity_stack_item));
+  for(u32 i = 0; i < 100; i++){
+    item_list_push(&entity_stack);
+    entity_stack[i].id = i + 10;
+  }
+  for(u32 i = 0; i < 100; i++){
+    ASSERT(entity_stack[i].id == i + 10);
+  }
+  item_list_destroy(&entity_stack);
+  
+  void detect_collisions(const octree_index index, float s, vec3 p){
+    UNUSED(p);
+    UNUSED(s);
+    UNUSED(index);
+    /*list_index lst = octree_index_payload_list(index);
+    for(;lst.ptr != 0; lst = list_index_next(lst)){
+      u32 id = list_index_get(lst);
+      u32 type = game_ctx->entity_type[id];
+      if(type == GAME_ENTITY || type == GAME_ENTITY_SUB_ENTITY){
+	u32 _lst = clst;
+	u32 cnt = item_list_count(entity_stack);
+	for(int i = 0; i < cnt; i++){
+	  entity_stack_item other =  entity_stack[i];
+	  if(get_type(other.id) == GAME_ENTITY_TILE){
+	    // definitely a collision.
+	  }
+	  else{
+	    u32 eid = game_ctx->entity_id[other.id];
+	    
+	    vec3 offset;
+	    float size = other.size;
+	    octree_index * model;
+	    switch(get_type(other.id)){
+	    case GAME_ENTITY:
+	      offset = game_ctx->entity_ctx->offset[eid];
+	      model = game_ctx->entity_ctx->model[eid];
+	      break;
+	    case GAME_ENTITY_SUB_ENTITY:
+	      u32 eeid = game_ctx->entity_sub_ctx->entity[eid];
+	      offset = game_ctx->entity_sub_ctx->offset[eid];
+	      offset = vec3_add(game_ctx->entity_ctx->offset[eeid], offset);
+	      model = game_ctx->entity_ctx->model[eeid];
+	      break;
+	    default:
+	      ERROR("Unsupported entity type");
+	    }
+	    vec3_print(offset);vec3_print(p);logd("\n");
+	    
+	  }
+	  
+	}
+      }
+      entity_stack_item * i = item_list_push(&entity_stack);
+      i->pos = p;
+      i->size = s;
+      i->id = id;
+    }
+
+    lst = octree_index_payload_list(index);
+    
+    for(;lst.ptr != 0; lst = list_index_next(lst))
+      item_list_pop(&entity_stack);
+    */
   }
 
   glfwInit();
@@ -609,8 +732,21 @@ int main(){
   while(glfwWindowShouldClose(win) == false){
 
     octree_iterate(oct->first_index, 1, vec3_zero, remove_subs); // remove sub entities
+
+    int up = glfwGetKey(win, GLFW_KEY_UP);
+    int down = glfwGetKey(win, GLFW_KEY_DOWN);
+    int right = glfwGetKey(win, GLFW_KEY_RIGHT);
+    int left = glfwGetKey(win, GLFW_KEY_LEFT);
+    int w = glfwGetKey(win, GLFW_KEY_W);
+    int s = glfwGetKey(win, GLFW_KEY_S);
+    vec3 move = vec3_new((right - left) * 0.03, (w - s) * 0.03, (up - down) * 0.03);
+    game_ctx->entity_ctx->offset_next[e1] = move;
+    game_ctx->entity_ctx->offset[e1] = vec3_add(game_ctx->entity_ctx->offset_next[e1], game_ctx->entity_ctx->offset[e1]);
+
     game_ctx->entity_sub_ctx->count = 0; // clear the list.
     octree_iterator_iterate(it, 1, vec3_zero, gen_subs); //recreate
+    
+    octree_iterate(oct->first_index, 1, vec3_zero, detect_collisions); //recreate
     
     int width = 0, height = 0;
     glfwGetWindowSize(win,&width, &height);
@@ -621,15 +757,7 @@ int main(){
     octree_iterate(oct->first_index, 1, vec3_new(0, 0, 0), rendervoxel);
     glfwSwapBuffers(win);
     glfwPollEvents();
-    int up = glfwGetKey(win, GLFW_KEY_UP);
-    int down = glfwGetKey(win, GLFW_KEY_DOWN);
-    int right = glfwGetKey(win, GLFW_KEY_RIGHT);
-    int left = glfwGetKey(win, GLFW_KEY_LEFT);
-    int w = glfwGetKey(win, GLFW_KEY_W);
-    int s = glfwGetKey(win, GLFW_KEY_S);
-    vec3 move = vec3_new((right - left) * 0.03, (w - s) * 0.03, (up - down) * 0.03);
-    game_ctx->entity_ctx->offset[e1] = vec3_add(game_ctx->entity_ctx->offset[e1], move);
-    
+
     //vec3_print(game_ctx->entity_ctx->offset[e1]);logd("\n");
     iron_sleep(0.01);
     octree_iterator_iterate(it, 1, vec3_zero, fix_collisions);
