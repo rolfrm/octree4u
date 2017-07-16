@@ -14,6 +14,10 @@ void octree_iterate_recurse(const octree_index_ctx * ctx){
   ctx->f(&ctx2);  
 }
 
+bool octree_index_is_leaf(octree_index index){
+  return index.child_index != -1 && index.oct->type[index.global_index] != OCTREE_NODE;
+}
+
 void octree_iterate_on(const octree_index_ctx * ctx){
   if(ctx->can_iterate){
     octree_index_ctx ctx2 = *ctx;

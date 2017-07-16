@@ -44,6 +44,7 @@ u32 * octree_index_get_payload(octree_index index);
 void octree_iterate_on(const octree_index_ctx * ctx);
 void octree_iterate(octree_index index, float size, vec3 p,
 		    void (* f)(const octree_index_ctx *));
+bool octree_index_is_leaf(octree_index index);
 
 
 struct _octree_iterator;
