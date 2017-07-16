@@ -24,6 +24,16 @@ struct _octree{
   octree_index first_index;
 };
 
+struct _octree_index_ctx;
+
+typedef struct _octree_index_ctx{
+  octree_index index;
+  float s;
+  vec3 p;
+  bool can_iterate;
+  void (* f)(const struct _octree_index_ctx *);
+}octree_index_ctx;
+
 octree_index octree_index_new(octree * oct, u32 index, i8 child_index);
 u32 octree_allocate(octree * oct);
 octree * octree_new();
@@ -31,8 +41,10 @@ octree_index octree_index_expand(octree_index index);
 octree_index octree_index_get_childi(octree_index index, u8 child_index);
 octree_index octree_index_get_child(octree_index index, i8 x, i8 y, i8 z);
 u32 * octree_index_get_payload(octree_index index);
+void octree_iterate_on(const octree_index_ctx * ctx);
 void octree_iterate(octree_index index, float size, vec3 p,
-		    void (* f)(octree_index idx, float s, vec3 p));
+		    void (* f)(const octree_index_ctx *));
+
 
 struct _octree_iterator;
 typedef struct _octree_iterator octree_iterator;

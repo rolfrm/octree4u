@@ -1,34 +1,42 @@
 #include <iron/full.h>
 #include "octree.h"
 
-void octree_iterate(octree_index index, float size, vec3 p,
-		    void (* f)(octree_index idx, float s, vec3 p)){
-
-  void recurse(octree_index index, float size, vec3 p){
-    
-    if(index.child_index != -1){
-      if(index.oct->type[index.global_index]== OCTREE_NODE){
-	recurse(octree_index_expand(index), size, p);
-	return;
-      }
-      f(index, size, p);    
+void octree_iterate_recurse(const octree_index_ctx * ctx){
+  var index = ctx->index;
+  octree_index_ctx ctx2 = *ctx;
+  if(index.child_index != -1){
+    if(index.oct->type[index.global_index]== OCTREE_NODE){
+      ctx2.index = octree_index_expand(ctx->index);  
     }else{
-
-      int order[] = {5, 1, 4, 0, 7, 3, 6, 2};
-      
-      for(int _i = 0; _i < 8; _i++){
-	int i = order[_i];
-	float dx = i %2;
-	float dy = (i / 2) % 2;
-	float dz = (i / 4) % 2;
-	float halfsize = size * 0.5f;
-	recurse(octree_index_get_childi(index, i), halfsize,
-		vec3_add(p, vec3_scale(vec3_new(dx,dy,dz), halfsize)));
-      }
-      f(index, size, p);
+      ctx2.can_iterate = false;
     }
   }
-  recurse(index, size, p);
+  ctx->f(&ctx2);  
+}
+
+void octree_iterate_on(const octree_index_ctx * ctx){
+  if(ctx->can_iterate){
+    octree_index_ctx ctx2 = *ctx;
+    float halfsize = ctx->s * 0.5f;
+    ctx2.s = halfsize;
+    int order[] = {5, 1, 4, 0, 7, 3, 6, 2};
+    for(int _i = 0; _i < 8; _i++){
+      int i = order[_i];
+      float dx = i %2;
+      float dy = (i / 2) % 2;
+      float dz = (i / 4) % 2;
+      ctx2.index = octree_index_get_childi(ctx->index, i);
+      ctx2.p = vec3_add(ctx->p, vec3_scale(vec3_new(dx,dy,dz), halfsize));
+      octree_iterate_recurse(&ctx2);
+    }
+  }
+}
+
+void octree_iterate(octree_index index, float size, vec3 p,
+		     void (* f)(const octree_index_ctx *)){
+  octree_index_ctx ctx = {index, size, p, true, f};
+  
+  octree_iterate_recurse(&ctx);
 }
 
 struct _octree_iterator{
@@ -245,11 +253,15 @@ int octree_test(){
     }
   }
 
-  void print_voxel(octree_index i, float s, vec3 p){
+  void print_voxel(const octree_index_ctx * ctx){
+    octree_index i = ctx->index;
+    float s = ctx->s;
+    vec3 p = ctx->p;
     u32 * pay = octree_index_get_payload(i);
     if(pay[0]){
       vec3_print(p); logd(" %f %i\n", s, pay[0]);
     }
+    octree_iterate_on(ctx);
   }
   
   octree_iterate(i1, 1, vec3_one, print_voxel);

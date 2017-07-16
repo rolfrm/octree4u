@@ -1,13 +1,13 @@
 
 typedef enum{
   // Its not an entity, its nothing.
-  GAME_ENTITY_NONE = 0,
+  GAME_ENTITY_NONE = 0xCC0,
   // A simple entity
-  GAME_ENTITY = 1,
+  GAME_ENTITY = 0xCC1,
   // A sub entity - An entity split into sub-entities.
-  GAME_ENTITY_SUB_ENTITY = 2,
+  GAME_ENTITY_SUB_ENTITY = 0xCC2,
   // A more simple entity type, that simply represents a tile.
-  GAME_ENTITY_TILE = 3
+  GAME_ENTITY_TILE = 0xCC3
   
 }game_entity_kind;
 
@@ -80,8 +80,7 @@ u32 item_list_count(void * item_list);
 void item_list_destroy(void * item_list_ptr);
 void item_list_pop(void * item_list_ptr);
 
-
-void rendervoxel(octree_index index, float size, vec3 p);
+void rendervoxel(const octree_index_ctx * ctx);
 void render_color(u32 color, float size, vec3 p);
 extern game_context * game_ctx;
 
