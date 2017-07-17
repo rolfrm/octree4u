@@ -598,6 +598,7 @@ int main(){
   
   
 
+  //game_context_alloc(game_ctx); // adding this provokes an error.
   u32 i1 = game_context_alloc(game_ctx);
   u32 e1 = entities_alloc(game_ctx->entity_ctx);
   octree * submodel = octree_new();
