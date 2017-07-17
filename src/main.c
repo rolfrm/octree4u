@@ -589,38 +589,31 @@ int main(){
   octree_test();
   game_ctx = game_context_new();
 
-  u32 i1 = game_context_alloc(game_ctx);
-  u32 i2 = game_context_alloc(game_ctx);
-  u32 i3 = game_context_alloc(game_ctx);
-  u32 i4 = game_context_alloc(game_ctx);
-  u32 e1 = entities_alloc(game_ctx->entity_ctx);
+  u32 create_tile(u32 color){
+    u32 id = game_context_alloc(game_ctx);
+    game_ctx->entity_type[id] = GAME_ENTITY_TILE;
+    game_ctx->entity_id[id] = color;
+    return list_entity_push(game_ctx->lists, 0, id);
+  }
   
+  
+
+  u32 i1 = game_context_alloc(game_ctx);
+  u32 e1 = entities_alloc(game_ctx->entity_ctx);
+  octree * submodel = octree_new();
   game_ctx->entity_type[i1] = GAME_ENTITY;
   game_ctx->entity_id[i1] = e1;
-  
-  game_ctx->entity_type[i2] = GAME_ENTITY_TILE;
-  game_ctx->entity_id[i2] = 17;
-
-  game_ctx->entity_type[i3] = GAME_ENTITY_TILE;
-  game_ctx->entity_id[i3] = 34;
-
-  game_ctx->entity_type[i4] = GAME_ENTITY_TILE;
-  game_ctx->entity_id[i4] = 55;
-
-  u32 i5 = game_context_alloc(game_ctx);
-  game_ctx->entity_type[i5] = GAME_ENTITY_TILE;
-  game_ctx->entity_id[i5] = 149;
-  list_entity_push(game_ctx->lists, 0, i3);
-  list_entity_push(game_ctx->lists, 0, i3);
-  u32 l3 = list_entity_push(game_ctx->lists, 0, i3);
   u32 l1 = list_entity_push(game_ctx->lists, 0, i1);
-  u32 l5 = list_entity_push(game_ctx->lists, 0, i5);
-  u32 l4 = list_entity_push(game_ctx->lists, 0, i4);
-  u32 l2 = list_entity_push(game_ctx->lists, 0, i2);
-  octree * submodel = octree_new();
+  
+  u32 l3 = create_tile(34);
+
+  u32 l4 = create_tile(55);
+  u32 l5 = create_tile(149);
+  u32 l2 = create_tile(17);
+
   logd("L3: %i\n", l3);
   octree_index_get_payload(octree_index_get_childi(submodel->first_index, 0))[0] = l3;
-  octree_index_get_payload(octree_index_get_childi(submodel->first_index, 2))[0] = l3;
+  octree_index_get_payload(octree_index_get_childi(submodel->first_index, 2))[0] = create_tile(199);
   octree_index_get_payload(octree_index_get_childi(submodel->first_index, 1))[0] = l3; 
 
   game_ctx->entity_ctx->model[e1] = submodel->first_index;
