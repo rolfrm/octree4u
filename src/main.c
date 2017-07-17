@@ -506,7 +506,7 @@ typedef struct {
   collision_data_part collider2;
 }collision_item;
 
-bool calc_collision(vec3 o1, vec3 o2, float s1, float s2, octree_index m1, octree_index m2){
+bool calc_collision(vec3 o1, vec3 o2, float s1, float s2, octree_index m1, octree_index m2, vec3 * o_overlap){
   bool has_color(octree_index m){
     if(m.oct == NULL) return true;
     return octree_index_get_payload(m)[0] != 0;
@@ -520,7 +520,14 @@ bool calc_collision(vec3 o1, vec3 o2, float s1, float s2, octree_index m1, octre
   bool h2 = has_color(m2);
   if(h2 && !h1){
     // swap arguments.
-    return calc_collision(o2, o1, s2, s1, m2, m1);
+    logd("flip..\n");
+    bool r = calc_collision(o2, o1, s2, s1, m2, m1, o_overlap);
+    if(r){
+      
+      *o_overlap = vec3_scale(*o_overlap, -1); // flip the sign since
+				       // the order is flipped.
+    }
+    return r;
   }
   if(!h1 && is_leaf(m1)){
     return false;
@@ -536,9 +543,28 @@ bool calc_collision(vec3 o1, vec3 o2, float s1, float s2, octree_index m1, octre
 
   vec3 d1 = vec3_sub(o1, o22);
   vec3 d2 = vec3_sub(o2, o12);
-  if(d1.x < -0.0001 && d1.y < -0.0001 && d1.z < -0.0001
-     && d2.x < -0.0001 && d2.y < -0.0001 && d2.z < -0.0001){
+  int maxelem(vec3 v){
+    if(v.x > v.z){
+      if(v.x > v.y)
+	return 0;
+      return 1;
+    }
+    if(v.z > v.y)
+      return 2;
+    return 1;
+  }
+  if(d1.x < -0.0000001 && d1.y < -0.0000001 && d1.z < -0.0000001
+     && d2.x < -0.0000001 && d2.y < -0.0000001 && d2.z < -0.0000001){
     if(h1 && h2){
+      int dm1 = maxelem(d1);
+      int dm2 = maxelem(d2);
+      vec3 out = {0};
+      if(d1.data[dm1] > d2.data[dm2]){
+	out.data[dm1] = d1.data[dm1];
+      }else{
+	out.data[dm2] = -d2.data[dm2];
+      }
+      *o_overlap = out;
       return true;
     }
 
@@ -548,7 +574,7 @@ bool calc_collision(vec3 o1, vec3 o2, float s1, float s2, octree_index m1, octre
       int y = (i / 2) % 2;
       int z = (i / 4) % 2;
       vec3 o22 = vec3_add(o2, vec3_new(x * s22, y * s22, z * s22));
-      if(calc_collision(o1, o22, s1, s22, m1, octree_index_get_childi(m2, i)))
+      if(calc_collision(o1, o22, s1, s22, m1, octree_index_get_childi(m2, i), o_overlap))
 	return true;
     }
     
@@ -821,7 +847,7 @@ int main(){
     int left = glfwGetKey(win, GLFW_KEY_LEFT);
     int w = glfwGetKey(win, GLFW_KEY_W);
     int s = glfwGetKey(win, GLFW_KEY_S);
-    vec3 move = vec3_new((right - left) * 0.03, (w - s) * 0.03, (up - down) * 0.03);
+    vec3 move = vec3_new((right - left) * 0.04, (w - s) * 0.04, (up - down) * 0.04);
     //vec3 prev = game_ctx->entity_ctx->offset[e1];
     game_ctx->entity_ctx->offset_next[e1] = move;
     game_ctx->entity_ctx->offset[e1] = vec3_add(game_ctx->entity_ctx->offset_next[e1], game_ctx->entity_ctx->offset[e1]);
@@ -868,17 +894,27 @@ int main(){
       }
     }
     bool col = false;
+    vec3 cv = vec3_zero;
     for(u32 i = 0; i < collision_count; i++){
       vec3 o1, o2;
       float s1, s2;
       octree_index m1, m2;
       get_collision_data(collision_stack[i].collider1, &o1, &s1, &m1);
       get_collision_data(collision_stack[i].collider2, &o2, &s2, &m2);
-      if(calc_collision(o1, o2, s1, s2, m1, m2))
+      vec3 cc = vec3_zero;
+      if(calc_collision(o1, o2, s1, s2, m1, m2, &cc)){
 	col = true;
+	vec3_print(cc);logd("  <-- collision vector\n");
+	cv=cc;
+      }
     }
-    if(col)
-      game_ctx->entity_ctx->offset[e1] = vec3_sub(game_ctx->entity_ctx->offset[e1], move);
+    if(col){
+      // why is this x8 needed?
+      // could have someting to do with the collision level on the tree.
+      cv = vec3_scale(cv,8) ;
+      game_ctx->entity_ctx->offset[e1] = vec3_add(game_ctx->entity_ctx->offset[e1], cv);
+      vec3_print(cv);vec3_print(move);logd("\n");
+    }
     
       
 
