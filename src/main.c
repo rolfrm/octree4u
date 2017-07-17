@@ -823,7 +823,7 @@ int main(){
 
   glfwInit();
   glfwWindowHint( GLFW_OPENGL_DEBUG_CONTEXT, true);
-  GLFWwindow * win = glfwCreateWindow(512, 512, "Octree Rendering", NULL, NULL);
+  GLFWwindow * win = glfwCreateWindow(700, 700, "Octree Rendering", NULL, NULL);
   glfwMakeContextCurrent(win);
   ASSERT(glewInit() == GLEW_OK);
   glDebugMessageCallback(debugglcalls, NULL);
@@ -856,67 +856,67 @@ int main(){
     octree_iterator_iterate(it, 1, vec3_zero, gen_subs); //recreate
 
     ASSERT(item_list_count(entity_stack) == 0);
-    item_list_clear(&collision_stack);
-    octree_iterate(oct->first_index, 1, vec3_zero, detect_collisions); //recreate
-    u32 collision_count = item_list_count(collision_stack);
-    
-    u32 get_real_collider(u32 collider){
-      if(game_ctx->entity_type[collider] == GAME_ENTITY_SUB_ENTITY)
-	collider = game_ctx->entity_sub_ctx->entity[game_ctx->entity_id[collider]];
-      return collider;
-    }
-    UNUSED(get_real_collider);
-    void get_collision_data(collision_data_part part, vec3 * o_offset, float * o_s, octree_index * o_model){
-      *o_offset = part.position;
-      *o_s = part.size;
-      *o_model = (octree_index){0};
-      u32 id = part.id;
-      ASSERT(id != 0);
-      if(get_type(id) ==  GAME_ENTITY_TILE){
-	return;
-      }
-      if(get_type(id) == GAME_ENTITY_SUB_ENTITY){
-	u32 subid = game_ctx->entity_id[id];
-	u32 eid = game_ctx->entity_sub_ctx->entity[subid];
-	vec3 offset2 = game_ctx->entity_sub_ctx->offset[subid];
-	*o_offset = vec3_add(*o_offset, vec3_scale(offset2, part.size));
-
-	vec3 offset3 = game_ctx->entity_ctx->offset[eid];
-	*o_offset = vec3_add(*o_offset, vec3_scale(offset3, part.size));
-	*o_model = game_ctx->entity_ctx->model[eid];	
-      }
+    for(int _i = 0; _i < 3; _i++){
+      item_list_clear(&collision_stack);
+      octree_iterate(oct->first_index, 1, vec3_zero, detect_collisions); //recreate
+      u32 collision_count = item_list_count(collision_stack);
       
-      if(get_type(id) == GAME_ENTITY){
-	u32 eid = game_ctx->entity_id[id];
-	vec3 offset3 = game_ctx->entity_ctx->offset[eid];
-	*o_offset = vec3_add(*o_offset, vec3_scale(offset3, part.size));
-	*o_model = game_ctx->entity_ctx->model[eid];
+      u32 get_real_collider(u32 collider){
+	if(game_ctx->entity_type[collider] == GAME_ENTITY_SUB_ENTITY)
+	  collider = game_ctx->entity_sub_ctx->entity[game_ctx->entity_id[collider]];
+	return collider;
+      }
+      UNUSED(get_real_collider);
+      void get_collision_data(collision_data_part part, vec3 * o_offset, float * o_s, octree_index * o_model){
+	*o_offset = part.position;
+	*o_s = part.size;
+	*o_model = (octree_index){0};
+	u32 id = part.id;
+	ASSERT(id != 0);
+	if(get_type(id) ==  GAME_ENTITY_TILE){
+	  return;
+	}
+	if(get_type(id) == GAME_ENTITY_SUB_ENTITY){
+	  u32 subid = game_ctx->entity_id[id];
+	  u32 eid = game_ctx->entity_sub_ctx->entity[subid];
+	  vec3 offset2 = game_ctx->entity_sub_ctx->offset[subid];
+	  *o_offset = vec3_add(*o_offset, vec3_scale(offset2, part.size));
+	  
+	  vec3 offset3 = game_ctx->entity_ctx->offset[eid];
+	  *o_offset = vec3_add(*o_offset, vec3_scale(offset3, part.size));
+	  *o_model = game_ctx->entity_ctx->model[eid];	
+	}
+	
+	if(get_type(id) == GAME_ENTITY){
+	  u32 eid = game_ctx->entity_id[id];
+	  vec3 offset3 = game_ctx->entity_ctx->offset[eid];
+	  *o_offset = vec3_add(*o_offset, vec3_scale(offset3, part.size));
+	  *o_model = game_ctx->entity_ctx->model[eid];
+	}
+      }
+      bool col = false;
+      vec3 cv = vec3_zero;
+      for(u32 i = 0; i < collision_count; i++){
+	vec3 o1, o2;
+	float s1, s2;
+	octree_index m1, m2;
+	get_collision_data(collision_stack[i].collider1, &o1, &s1, &m1);
+	get_collision_data(collision_stack[i].collider2, &o2, &s2, &m2);
+	vec3 cc = vec3_zero;
+	if(calc_collision(o1, o2, s1, s2, m1, m2, &cc)){
+	  col = true;
+	  //vec3_print(cc);logd("  <-- collision vector\n");
+	  cv=cc;
+	}
+      }
+      if(col){
+	// why is this x8 needed?
+	// could have someting to do with the collision level on the tree.
+	cv = vec3_scale(cv,8) ;
+	game_ctx->entity_ctx->offset[e1] = vec3_add(game_ctx->entity_ctx->offset[e1], cv);
+	//vec3_print(cv);vec3_print(move);logd("\n");
       }
     }
-    bool col = false;
-    vec3 cv = vec3_zero;
-    for(u32 i = 0; i < collision_count; i++){
-      vec3 o1, o2;
-      float s1, s2;
-      octree_index m1, m2;
-      get_collision_data(collision_stack[i].collider1, &o1, &s1, &m1);
-      get_collision_data(collision_stack[i].collider2, &o2, &s2, &m2);
-      vec3 cc = vec3_zero;
-      if(calc_collision(o1, o2, s1, s2, m1, m2, &cc)){
-	col = true;
-	vec3_print(cc);logd("  <-- collision vector\n");
-	cv=cc;
-      }
-    }
-    if(col){
-      // why is this x8 needed?
-      // could have someting to do with the collision level on the tree.
-      cv = vec3_scale(cv,8) ;
-      game_ctx->entity_ctx->offset[e1] = vec3_add(game_ctx->entity_ctx->offset[e1], cv);
-      vec3_print(cv);vec3_print(move);logd("\n");
-    }
-    
-      
 
     octree_iterate(oct->first_index, 1, vec3_zero, remove_subs); // remove sub entities
     octree_iterator_iterate(it, 1, vec3_zero, fix_collisions);
@@ -931,8 +931,7 @@ int main(){
     glfwSwapBuffers(win);
     glfwPollEvents();
 
-    //vec3_print(game_ctx->entity_ctx->offset[e1]);logd("\n");
-    iron_sleep(0.01);
+    iron_sleep(0.03);
  
       
   }
