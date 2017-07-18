@@ -522,7 +522,6 @@ bool calc_collision(vec3 o1, vec3 o2, float s1, float s2, octree_index m1, octre
   bool h2 = has_color(m2);
   if(h2 && !h1){
     // swap arguments.
-    logd("flip..\n");
     bool r = calc_collision(o2, o1, s2, s1, m2, m1, o_overlap);
     if(r){
       
@@ -598,28 +597,40 @@ int main(){
     return list_entity_push(game_ctx->lists, 0, id);
   }
   
-  
-
-  game_context_alloc(game_ctx); // adding this provokes an error.
-  u32 i1 = game_context_alloc(game_ctx);
-  u32 e1 = entities_alloc(game_ctx->entity_ctx);
-  octree * submodel = octree_new();
-  game_ctx->entity_type[i1] = GAME_ENTITY;
-  game_ctx->entity_id[i1] = e1;
-  u32 l1 = list_entity_push(game_ctx->lists, 0, i1);
-  
+    
   u32 l3 = create_tile(34);
 
   u32 l4 = create_tile(55);
   u32 l5 = create_tile(149);
   u32 l2 = create_tile(17);
 
-  logd("L3: %i\n", l3);
-  octree_index_get_payload(octree_index_get_childi(submodel->first_index, 0))[0] = l3;
-  octree_index_get_payload(octree_index_get_childi(submodel->first_index, 2))[0] = create_tile(199);
-  octree_index_get_payload(octree_index_get_childi(submodel->first_index, 1))[0] = l3; 
+  octree * submodel = octree_new();
+  {
+    octree_index index = submodel->first_index;
+    octree_index_get_payload(octree_index_get_childi(index, 0))[0] = l3;
+    octree_index_get_payload(octree_index_get_childi(index, 2))[0] = create_tile(199);
+    octree_index_get_payload(octree_index_get_childi(index, 1))[0] = l3;
+  }
 
+  
+  u32 i1 = game_context_alloc(game_ctx);
+  u32 e1 = entities_alloc(game_ctx->entity_ctx);
+  
+  game_ctx->entity_type[i1] = GAME_ENTITY;
+  game_ctx->entity_id[i1] = e1;
   game_ctx->entity_ctx->model[e1] = submodel->first_index;
+  u32 l1 = list_entity_push(game_ctx->lists, 0, i1);
+
+  u32 l6 = 0;
+  {
+    u32 i1 = game_context_alloc(game_ctx);
+    u32 e1 = entities_alloc(game_ctx->entity_ctx);
+    game_ctx->entity_type[i1] = GAME_ENTITY;
+    game_ctx->entity_id[i1] = e1;
+    game_ctx->entity_ctx->model[e1] = submodel->first_index;
+    l6 = list_entity_push(game_ctx->lists, 0, i1);
+  }
+  
   octree * oct = octree_new();
   octree_index idx = oct->first_index;
   
@@ -630,7 +641,11 @@ int main(){
   octree_iterator_child(it, 0, 0, 0);
   octree_iterator_move(it,3, 0, 3);
   octree_iterator_payload(it)[0] = l1;
+  octree_iterator_move(it, 2, 0, 0);
+  octree_iterator_payload(it)[0] = l6;
+  octree_iterator_move(it, -2, 0, 0);
   octree_iterator_move(it,-2, -1, -2);
+
   u32 current_color = l5;
   for(int j = 0; j < 5; j++){
     for(int i = 0; i < 5; i++){
