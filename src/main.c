@@ -101,7 +101,8 @@ u32 game_context_alloc(game_context * ctx){
       ctx->entity_type = ralloc(ctx->entity_type, newcap * sizeof(ctx->entity_type[0]));
       ctx->capacity = newcap;
     }
-    newidx = ctx->count++;
+    newidx = ctx->count;
+    ctx->count += 1;
   }
   ctx->entity_id[newidx] = 0;
   ctx->entity_type[newidx] = 0;
@@ -336,8 +337,9 @@ void render_color(u32 color, float size, vec3 p){
   u32 id = game_ctx->entity_id[color];
   if(type == GAME_ENTITY_SUB_ENTITY){
     vec3 add_offset = game_ctx->entity_sub_ctx->offset[id];
-    id = game_ctx->entity_sub_ctx->entity[id];
+    id = game_ctx->entity_id[game_ctx->entity_sub_ctx->entity[id]];
     type = GAME_ENTITY;
+    ASSERT(id < game_ctx->entity_ctx->count);
     octree_index index2 = game_ctx->entity_ctx->model[id];
     if(index2.oct != NULL){
       
@@ -598,7 +600,7 @@ int main(){
   
   
 
-  //game_context_alloc(game_ctx); // adding this provokes an error.
+  game_context_alloc(game_ctx); // adding this provokes an error.
   u32 i1 = game_context_alloc(game_ctx);
   u32 e1 = entities_alloc(game_ctx->entity_ctx);
   octree * submodel = octree_new();
@@ -872,7 +874,7 @@ int main(){
 	}
 	if(get_type(id) == GAME_ENTITY_SUB_ENTITY){
 	  u32 subid = game_ctx->entity_id[id];
-	  u32 eid = game_ctx->entity_sub_ctx->entity[subid];
+	  u32 eid = game_ctx->entity_id[game_ctx->entity_sub_ctx->entity[subid]];
 	  vec3 offset2 = game_ctx->entity_sub_ctx->offset[subid];
 	  *o_offset = vec3_add(*o_offset, vec3_scale(offset2, part.size));
 	  
