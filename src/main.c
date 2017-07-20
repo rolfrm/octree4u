@@ -324,6 +324,8 @@ void printError(const char * file, int line ){
 #define PRINTERR() printError(__FILE__, __LINE__);
 game_context * game_ctx;
 
+float render_zoom = 1.0;
+vec3 render_offset = {0};
 
 void render_color(u32 color, float size, vec3 p){
   static vec3 bound_lower;
@@ -388,7 +390,7 @@ void render_color(u32 color, float size, vec3 p){
 	
       }
     }
-    glUniform3f(glGetUniformLocation(game_ctx->prog, "position"), p.x, p.y, p.z);
+    glUniform3f(glGetUniformLocation(game_ctx->prog, "position"), p.x * render_zoom + render_offset.x, p.y * render_zoom + render_offset.y, p.z * render_zoom + render_offset.z);
     if(bound_upper.x < 1.0){
       vec3 p2 = vec3_add(p, s);
       
@@ -396,7 +398,7 @@ void render_color(u32 color, float size, vec3 p){
       if(s.x <= 0 || s.y <= 0 || s.z <= 0)
 	return;
     }
-    glUniform3f(glGetUniformLocation(game_ctx->prog, "size"), s.x, s.y, s.z);
+    glUniform3f(glGetUniformLocation(game_ctx->prog, "size"), s.x * render_zoom, s.y * render_zoom, s.z * render_zoom);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 6);
   }
 }
@@ -565,7 +567,7 @@ bool calc_collision(vec3 o1, vec3 o2, float s1, float s2, octree_index m1, octre
       }else{
 	out.data[dm2] = -d2.data[dm2];
       }
-      *o_overlap = out;
+      *o_overlap = vec3_scale(out, 1.0);
       return true;
     }
 
@@ -635,9 +637,12 @@ int main(){
   octree_index idx = oct->first_index;
   
   octree_iterator * it = octree_iterator_new(idx);
-  //octree_iterator_child(it, 0, 1, 0);
   octree_iterator_child(it, 0, 0, 0);
-  octree_iterator_child(it, 0, 1, 0);
+  octree_iterator_child(it, 1, 1, 1);
+  octree_iterator_child(it, 0, 0, 0);
+  octree_iterator_child(it, 1, 1, 1);
+  octree_iterator_child(it, 0, 0, 0);
+  octree_iterator_child(it, 1, 1, 1);
   octree_iterator_child(it, 0, 0, 0);
   octree_iterator_move(it,3, 0, 3);
   octree_iterator_payload(it)[0] = l1;
@@ -673,7 +678,7 @@ int main(){
     octree_iterator_move(it,-1, 0, 0);
     octree_iterator_payload(it)[0] = l5;
   }
-  for(int i = 0; i < 5; i++){
+  for(int i = 0; i < 15; i++){
     octree_iterator_move(it,0, 0, -1);
     octree_iterator_payload(it)[0] = l5;
   }
@@ -750,7 +755,7 @@ int main(){
   }
 
   
-  it = octree_iterator_new(idx);
+  it = octree_iterator_new(oct->first_index);
   void fix_collisions(const octree_iterator * i, float s, vec3 p){
     UNUSED(p);
     UNUSED(s);
@@ -916,14 +921,15 @@ int main(){
 	vec3 cc = vec3_zero;
 	if(calc_collision(o1, o2, s1, s2, m1, m2, &cc)){
 	  col = true;
-	  //vec3_print(cc);logd("  <-- collision vector\n");
-	  cv=cc;
+	  //vec3_print(cc);logd("  <-- collision vector %f\n", s1);
+	  // transform to local coordinates.
+	  cv=vec3_scale(cc, 1.0 / s2);
 	}
       }
       if(col){
 	// why is this x8 needed?
 	// could have someting to do with the collision level on the tree.
-	cv = vec3_scale(cv,8) ;
+	//cv = vec3_scale(cv,64) ;
 	game_ctx->entity_ctx->offset[e1] = vec3_add(game_ctx->entity_ctx->offset[e1], cv);
 	//vec3_print(cv);vec3_print(move);logd("\n");
       }
@@ -938,7 +944,9 @@ int main(){
       glViewport(0, 0, width, height);
 
     glClear(GL_COLOR_BUFFER_BIT);
-    octree_iterate(oct->first_index, 1, vec3_new(0, 0, 0), rendervoxel);
+    render_zoom = 8.0;
+    render_offset = vec3_new(0,-5.5,0);
+    octree_iterate(oct->first_index, 1, vec3_new(0, 0.0, 0), rendervoxel);
     glfwSwapBuffers(win);
     glfwPollEvents();
 
