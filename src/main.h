@@ -14,7 +14,7 @@ typedef enum{
 typedef struct{
   vec3 * offset;
   octree_index * model;
-  vec3 * offset_next;
+  vec3 * velocity;
   u32 count;
   u32 capacity;
 }entities;

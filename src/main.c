@@ -134,14 +134,14 @@ u32 entities_alloc(entities * ctx){
     u64 newcap = MAX(ctx->capacity * 2, 8);
     ctx->offset = ralloc(ctx->offset, newcap * sizeof(ctx->offset[0]));
     ctx->model = ralloc(ctx->model, newcap * sizeof(ctx->model[0]));
-    ctx->offset_next = ralloc(ctx->offset_next, newcap * sizeof(ctx->offset_next[0]));
+    ctx->velocity = ralloc(ctx->velocity, newcap * sizeof(ctx->velocity[0]));
     ctx->capacity = newcap;
   }
 
   u32 newidx = ctx->count;
   ctx->offset[newidx] = vec3_zero;
   ctx->model[newidx] = (octree_index){0};
-  ctx->offset_next[newidx] = vec3_zero;
+  ctx->velocity[newidx] = vec3_zero;
   ctx->count += 1;
   return newidx;
 }
@@ -651,12 +651,12 @@ int main(){
   octree_iterator_move(it, -2, 0, 0);
   octree_iterator_move(it,-2, -1, -2);
 
-  u32 current_color = l5;
+  u32 current_color = l4;
   for(int j = 0; j < 5; j++){
     for(int i = 0; i < 5; i++){
       octree_iterator_move(it,1, 0, 0);
-      if(i != 2 && j != 2 && j != 3)
-	octree_iterator_payload(it)[0] = current_color;
+      //if(i != 2 && j != 2 && j != 3)
+      octree_iterator_payload(it)[0] = current_color;
       if(current_color == l2)
 	current_color = l4;
       else
@@ -838,10 +838,12 @@ int main(){
   }
 
   glfwInit();
+  
   glfwWindowHint( GLFW_OPENGL_DEBUG_CONTEXT, true);
   GLFWwindow * win = glfwCreateWindow(700, 700, "Octree Rendering", NULL, NULL);
   glfwMakeContextCurrent(win);
   ASSERT(glewInit() == GLEW_OK);
+
   glDebugMessageCallback(debugglcalls, NULL);
   glClearColor(1.0, 1.0, 1.0, 1.0);
   game_ctx->prog = glCreateProgram(); 
@@ -851,7 +853,20 @@ int main(){
   glAttachShader(game_ctx->prog, fs);
   glLinkProgram(game_ctx->prog);
   glUseProgram(game_ctx->prog);
+
+  vec2 cursorPos = vec2_zero;
+  vec2 cursorMove = vec2_zero;
+  void cursorMoved(GLFWwindow * win, double x, double y){
+    UNUSED(win);
+    vec2 newpos = vec2_new(x, y);
+    cursorMove = vec2_sub(newpos, cursorPos);
+    cursorPos = newpos;
+    vec2_print(newpos);logd("\n");
+  }
   
+  glfwSetCursorPosCallback(win, cursorMoved);
+  render_offset = vec3_new(0,-15,0);
+  render_zoom = 19;
   
   while(glfwWindowShouldClose(win) == false){
 
@@ -863,10 +878,12 @@ int main(){
     int left = glfwGetKey(win, GLFW_KEY_LEFT);
     int w = glfwGetKey(win, GLFW_KEY_W);
     int s = glfwGetKey(win, GLFW_KEY_S);
-    vec3 move = vec3_new((right - left) * 0.04, (w - s) * 0.04, (up - down) * 0.04);
+    vec3 move = vec3_new((right - left) * 0.01, (w - s) * 0.04, (up - down) * 0.01);
+    move.y -= 0.02;
+    vec3_print(game_ctx->entity_ctx->velocity[e1]);logd("\n");
+    game_ctx->entity_ctx->velocity[e1] = vec3_add(move, vec3_scale(game_ctx->entity_ctx->velocity[e1], 0.90));
     //vec3 prev = game_ctx->entity_ctx->offset[e1];
-    game_ctx->entity_ctx->offset_next[e1] = move;
-    game_ctx->entity_ctx->offset[e1] = vec3_add(game_ctx->entity_ctx->offset_next[e1], game_ctx->entity_ctx->offset[e1]);
+    game_ctx->entity_ctx->offset[e1] = vec3_add(game_ctx->entity_ctx->velocity[e1], game_ctx->entity_ctx->offset[e1]);
     game_ctx->entity_sub_ctx->count = 0; // clear the list.
     octree_iterator_iterate(it, 1, vec3_zero, fix_collisions);
     octree_iterator_iterate(it, 1, vec3_zero, gen_subs); //recreate
@@ -921,17 +938,30 @@ int main(){
 	vec3 cc = vec3_zero;
 	if(calc_collision(o1, o2, s1, s2, m1, m2, &cc)){
 	  col = true;
-	  //vec3_print(cc);logd("  <-- collision vector %f\n", s1);
-	  // transform to local coordinates.
+	  // 1/s2 -> transform to local coordinates.
 	  cv=vec3_scale(cc, 1.0 / s2);
+	  if(cc.y != 0.0f){
+	    if(SIGN(game_ctx->entity_ctx->velocity[e1].y) != SIGN(cc.y)){
+	      game_ctx->entity_ctx->velocity[e1].y = 0;
+	    }
+	  }
+
+	  if(cc.z != 0.0f){
+	    if(SIGN(game_ctx->entity_ctx->velocity[e1].z) != SIGN(cc.z)){
+	      game_ctx->entity_ctx->velocity[e1].z= 0;
+	    }
+	  }
+
+	  if(cc.x != 0.0f){
+	    if(SIGN(game_ctx->entity_ctx->velocity[e1].x) != SIGN(cc.x)){
+	      game_ctx->entity_ctx->velocity[e1].x= 0;
+	    }
+	  }
+	  
 	}
       }
       if(col){
-	// why is this x8 needed?
-	// could have someting to do with the collision level on the tree.
-	//cv = vec3_scale(cv,64) ;
 	game_ctx->entity_ctx->offset[e1] = vec3_add(game_ctx->entity_ctx->offset[e1], cv);
-	//vec3_print(cv);vec3_print(move);logd("\n");
       }
     }
 
@@ -944,14 +974,19 @@ int main(){
       glViewport(0, 0, width, height);
 
     glClear(GL_COLOR_BUFFER_BIT);
-    render_zoom = 8.0;
-    render_offset = vec3_new(0,-5.5,0);
+    if(glfwGetMouseButton(win, 1)){
+      render_offset.x += cursorMove.x * 0.005;
+      render_offset.z -= cursorMove.x * 0.005;
+      render_offset.y -= cursorMove.y * 0.01;
+    }
+
     octree_iterate(oct->first_index, 1, vec3_new(0, 0.0, 0), rendervoxel);
     glfwSwapBuffers(win);
+    cursorMove = vec2_zero;
     glfwPollEvents();
 
     iron_sleep(0.03);
- 
+    logd("%i \n", 0.0 == -0.0);
       
   }
 }
