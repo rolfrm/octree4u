@@ -217,6 +217,10 @@ octree_index octree_iterator_index(const octree_iterator * it){
   return it->indexstack[it->count - 1];
 }
 
+u32 octree_iterator_get_node_id(const octree_iterator * it){
+  return octree_iterator_index(it).global_index;
+}
+
 
 int octree_test(){
   octree * oct = octree_new();

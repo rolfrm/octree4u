@@ -62,3 +62,4 @@ u32 * octree_iterator_payload(const octree_iterator * it);
 void octree_iterator_iterate(octree_iterator * it, float size, vec3 p,
 			     void (* f)(const octree_iterator * i, float s, vec3 p));
 octree_index octree_iterator_index(const octree_iterator * i);
+u32 octree_iterator_get_node_id(const octree_iterator * it);

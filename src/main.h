@@ -14,7 +14,7 @@ typedef enum{
 typedef struct{
   vec3 * offset;
   octree_index * model;
-  vec3 * velocity;
+  //vec3 * velocity;
   u32 count;
   u32 capacity;
 }entities;
@@ -73,12 +73,6 @@ u32 list_entity_alloc(list_entity * lst);
 u32 list_entity_push(list_entity * lst, u32 head, u32 value);
 u32 list_entity_pop(list_entity * lst, u32 head);
 void list_entity_test();
-
-void * item_list_new(u32 elem_size);
-void * item_list_push(void * item_list_ptr);
-u32 item_list_count(void * item_list);
-void item_list_destroy(void * item_list_ptr);
-void item_list_pop(void * item_list_ptr);
 
 void rendervoxel(const octree_index_ctx * ctx);
 void render_color(u32 color, float size, vec3 p);

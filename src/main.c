@@ -12,6 +12,9 @@
 #include <iron/time.h>
 #include <iron/utils.h>
 #include <iron/linmath.h>
+#include "move_request.h"
+#include "move_request.c"
+
 
 #include "octree.h"
 #include "main.h"
@@ -134,14 +137,12 @@ u32 entities_alloc(entities * ctx){
     u64 newcap = MAX(ctx->capacity * 2, 8);
     ctx->offset = ralloc(ctx->offset, newcap * sizeof(ctx->offset[0]));
     ctx->model = ralloc(ctx->model, newcap * sizeof(ctx->model[0]));
-    ctx->velocity = ralloc(ctx->velocity, newcap * sizeof(ctx->velocity[0]));
     ctx->capacity = newcap;
   }
 
   u32 newidx = ctx->count;
   ctx->offset[newidx] = vec3_zero;
   ctx->model[newidx] = (octree_index){0};
-  ctx->velocity[newidx] = vec3_zero;
   ctx->count += 1;
   return newidx;
 }
@@ -246,9 +247,9 @@ list_index list_index_next(list_index lst){
 list_index list_index_pop(list_index lst){
   ASSERT(lst.ptr != 0);
   if(lst.ptr == lst.list_id){
+    // if at head of list
     lst.ptr = list_entity_pop(game_ctx->lists, lst.ptr);
     lst.list_id = lst.ptr;
-    
     octree_index_get_payload(lst.origin)[0] = lst.ptr;
   }else{
     u32 prev = lst.list_id;
@@ -281,6 +282,15 @@ list_index list_index_push(list_index lst, u32 val){
   ASSERT(game_ctx->lists->next[lst.ptr] != lst.ptr);
   ASSERT(list_index_get(lst) != 0);
   return lst;
+}
+
+u32 list_index_count(list_index lst){
+  u32 i = 0;
+  while(lst.ptr != 0){
+    i++;
+    lst = list_index_next(lst);
+  }
+  return i;
 }
 
 void list_entity_test(){
@@ -434,7 +444,15 @@ typedef struct {
   collision_data_part collider2;
 }collision_item;
 
-bool calc_collision(vec3 o1, vec3 o2, float s1, float s2, octree_index m1, octree_index m2, vec3 * o_overlap){
+typedef struct {
+  float overlap;
+  int cdim;
+  int sign;
+  bool collision_occured;
+}collision_data;
+
+
+bool calc_collision(vec3 o1, vec3 o2, float s1, float s2, octree_index m1, octree_index m2, collision_data * o){
   bool has_color(octree_index m){
     if(m.oct == NULL) return true;
     return octree_index_get_payload(m)[0] != 0;
@@ -448,12 +466,11 @@ bool calc_collision(vec3 o1, vec3 o2, float s1, float s2, octree_index m1, octre
   bool h2 = has_color(m2);
   if(h2 && !h1){
     // swap arguments.
-    bool r = calc_collision(o2, o1, s2, s1, m2, m1, o_overlap);
-    if(r){
-      
-      *o_overlap = vec3_scale(*o_overlap, -1); // flip the sign since
-				       // the order is flipped.
-    }
+    // flip the sign since
+    // the order is flipped.
+    bool r;
+    if((r = calc_collision(o2, o1, s2, s1, m2, m1, o)))
+      o->sign = -o->sign;    
     return r;
   }
   if(!h1 && is_leaf(m1)){
@@ -480,18 +497,21 @@ bool calc_collision(vec3 o1, vec3 o2, float s1, float s2, octree_index m1, octre
       return 2;
     return 1;
   }
-  if(d1.x < -0.0000001 && d1.y < -0.0000001 && d1.z < -0.0000001
-     && d2.x < -0.0000001 && d2.y < -0.0000001 && d2.z < -0.0000001){
+  if(d1.x < -0.000001 && d1.y < -0.000001 && d1.z < -0.000001
+     && d2.x < -0.000001 && d2.y < -0.000001 && d2.z < -0.000001){
     if(h1 && h2){
       int dm1 = maxelem(d1);
       int dm2 = maxelem(d2);
-      vec3 out = {0};
       if(d1.data[dm1] > d2.data[dm2]){
-	out.data[dm1] = d1.data[dm1];
+	o->cdim = dm1;
+	o->overlap = d1.data[dm1];
+	o->sign = 1;
       }else{
-	out.data[dm2] = -d2.data[dm2];
+	o->cdim = dm2;
+	o->overlap = d2.data[dm2];
+	o->sign = -1;
       }
-      *o_overlap = vec3_scale(out, 1.0);
+      o->collision_occured = true;
       return true;
     }
 
@@ -501,7 +521,7 @@ bool calc_collision(vec3 o1, vec3 o2, float s1, float s2, octree_index m1, octre
       int y = (i / 2) % 2;
       int z = (i / 4) % 2;
       vec3 o22 = vec3_add(o2, vec3_new(x * s22, y * s22, z * s22));
-      if(calc_collision(o1, o22, s1, s22, m1, octree_index_get_childi(m2, i), o_overlap))
+      if(calc_collision(o1, o22, s1, s22, m1, octree_index_get_childi(m2, i), o))
 	return true;
     }
     
@@ -510,6 +530,338 @@ bool calc_collision(vec3 o1, vec3 o2, float s1, float s2, octree_index m1, octre
 
   return false;
 }
+/*
+bool sweep_detect(octree_index m1, octree_index m2, vec3 o1, vec3 o2, float s1, float s2, vec3 dir, float * o_t1, float * o_t2){
+
+  bool has_color(octree_index m){
+    if(m.oct == NULL) return true;
+    return octree_index_get_payload(m)[0] != 0;
+  }
+
+  bool is_leaf(octree_index m){
+    if(m.oct == NULL) return true;
+    return octree_index_is_leaf(m);
+  }
+
+  bool h1 = has_color(m1);
+  bool h2 = has_color(m2);
+
+  if(!h1 && is_leaf(m1)){
+    return false; // no collision here.
+  }
+  
+  if(!h2 && is_leaf(m2)){
+    return false;
+  }
+  
+  vec3 o12 = vec3_add(o1, vec3_new1(s1));
+  vec3 o22 = vec3_add(o2, vec3_new1(s2));
+
+  vec3 t1 = vec3_scale(vec3_sub(o2, o12), dir);
+  vec3 t2 = vec3_scale(vec3_sub(o22, o1), dir);
+  let t1_min = vec3_min_element(t1);
+  let t2_min = vec3_min_element(t2);
+  if(fabs(t1_min) > fabs(t2_min))
+    return false;
+  
+  
+}
+
+// iterator points at the current cell.
+// model is the octree index we compare with
+// offset is the offset within the current cell.
+// self it the self entity (simply ignored)
+// dir is the direction to sweep.
+void sweep_direction(octree_iterator * it, octree_index model, vec3 offset, u32 self, vec3 dir){
+  list_index payload = octree_iterator_payload_list(it);
+  while(payload.list_id != 0){
+    if(payload.ptr == self)
+      continue;
+    
+    payload = list_index_next(payload);
+  }
+}
+*/
+/*
+void trace_dir(octree_iterator * it, octree_index m, vec3 offset, vec3 step, int iterations, bool (* hit)()){
+  for(int i = 0; i < iterations; i++){
+    vec3 position = vec3_zero;
+    float size = 1.0;
+    list_index payload = octree_iterator_payload_list(it);
+    for(;payload.ptr != 0; payload = list_index_next(payload)){
+      u32 id = list_index_get(payload);
+      u32 e = game_ctx->entity_id[id];
+      vec3 p = position;
+      octree_index model = {0};
+      float s = size;
+      if(game_ctx->entity_type[id] == GAME_ENTITY){
+	p = vec3_add(p, game_ctx->entity_ctx->offset[e]);
+	model = game_ctx->entity_ctx->model[e];
+      }else if(game_ctx->entity_type[id] == GAME_ENTITY_SUB_ENTITY){
+	u32 eid = game_ctx->entity_id[e];
+	vec3 o2 = game_ctx->entity_sub_ctx->offset[eid];
+	
+      }
+    }
+  }
+  }*/
+
+void remove_subs(const octree_index_ctx * ctx){
+  const octree_index index = ctx->index;
+  float s = ctx->s;
+  vec3 p = ctx->p;
+  UNUSED(s);
+  UNUSED(p);
+  bool remove_sub(u32 payload){
+    if(payload == 0)
+      return false;
+      
+    if(game_ctx->entity_type[payload] != GAME_ENTITY_SUB_ENTITY)
+      return false;
+    game_ctx->entity_type[payload] = 0;
+    game_ctx->entity_id[payload] = 0;
+    game_context_free(game_ctx, payload);
+    return true;
+  }
+  list_index lst = octree_index_payload_list(index);
+  while(lst.ptr != 0){
+    if(remove_sub(list_index_get(lst))){
+      lst = list_index_pop(lst);
+      if(lst.ptr == 0)
+	break;
+	
+    }
+    lst = list_index_next(lst);
+  }
+  octree_iterate_on(ctx);
+}
+
+void gen_subs(const octree_iterator * i, float s, vec3 p){
+  UNUSED(p);
+  UNUSED(s);
+  list_index lst = octree_iterator_payload_list(i);
+  for(;lst.ptr != 0; lst = list_index_next(lst)){
+    u32 id = list_index_get(lst);
+    u32 type = game_ctx->entity_type[id];
+    u32 val = game_ctx->entity_id[id];
+    if(type == GAME_ENTITY){
+      vec3 offset = game_ctx->entity_ctx->offset[val];
+
+      if(vec3_sqlen(vec3_abs(offset)) > 0.001){
+	  
+	octree_iterator * i2 = octree_iterator_clone(i);
+
+	for(int i = 1; i < 8; i++){
+	  int dim[] = {i % 2, (i / 2) % 2, (i / 4) % 2};
+	  if(octree_iterator_try_move(i2, dim[0], dim[1], dim[2])){
+	    u32 xnode_ent = game_context_alloc(game_ctx);
+	    u32 xnode = entity_sub_offset_alloc(game_ctx->entity_sub_ctx);
+	    vec3 newoffset = vec3_zero;
+	    for(int j = 0; j < 3; j++)
+	      newoffset.data[j] -= dim[j];	
+	    game_ctx->entity_sub_ctx->offset[xnode] = newoffset;
+	    game_ctx->entity_sub_ctx->entity[xnode] = id;
+	    list_index l2 = octree_iterator_payload_list(i2);
+	    game_ctx->entity_type[xnode_ent] = GAME_ENTITY_SUB_ENTITY;
+	    game_ctx->entity_id[xnode_ent] = xnode;
+	    let l3 = list_index_push(l2, xnode_ent);
+	    UNUSED(l3);
+	  }
+	  octree_iterator_move(i2, -dim[0], -dim[1], -dim[2]);  
+	}
+	octree_iterator_destroy(&i2);
+      }
+    }
+  }
+}
+
+void update_entity_nodes(const octree_iterator * i, float s, vec3 p){
+  UNUSED(p);
+  UNUSED(s);
+  list_index lst = octree_iterator_payload_list(i);
+  while(lst.ptr != 0){
+  
+    u32 id = list_index_get(lst);
+    u32 type = game_ctx->entity_type[id];
+    u32 val = game_ctx->entity_id[id];
+    if(type == GAME_ENTITY){
+      vec3 offset = game_ctx->entity_ctx->offset[val];
+      vec3 r = vec3_new(floorf(offset.x), floorf(offset.y), floorf(offset.z));
+      if(vec3_sqlen(vec3_abs(r)) < 0.1)
+	return;
+      int x = (int)r.x, y = (int)r.y, z = (int)r.z;
+      octree_iterator * i2 = octree_iterator_clone(i);
+      if(!octree_iterator_try_move(i2, x, y, z))
+	return;
+      
+      {
+	list_index lst2 = octree_iterator_payload_list(i2);
+	lst2 = list_index_push(lst2, id);
+	ASSERT(list_index_get(lst2) == id);
+      }
+
+      lst = list_index_pop(lst);
+      game_ctx->entity_ctx->offset[val] = vec3_sub(game_ctx->entity_ctx->offset[val], r);
+      octree_iterator_destroy(&i2);
+
+    }else{
+      lst = list_index_next(lst);
+    }
+  }
+}
+
+game_entity_kind get_type(u32 id){
+  ASSERT(game_ctx->count > id);
+  return game_ctx->entity_type[id];
+}
+  
+
+void detect_possible_collisions(const octree_index_ctx * ctx, collision_item ** collision_stack, entity_stack_item ** entity_stack){
+
+    const octree_index index = ctx->index;
+    float s = ctx->s;
+    vec3 p = ctx->p;
+    list_index lst = octree_index_payload_list(index);
+    for(;lst.ptr != 0; lst = list_index_next(lst)){
+      u32 id = list_index_get(lst);
+      game_entity_kind type = game_ctx->entity_type[id];
+      ASSERT(type != 0);
+      u32 cnt = item_list_count(*entity_stack);
+      for(u32 i = 0; i < cnt; i++){
+	entity_stack_item other =  (*entity_stack)[i];
+	game_entity_kind other_type = get_type(other.id);
+	
+	if(other_type == GAME_ENTITY_TILE && type == GAME_ENTITY_TILE){
+	  // skip collision between two tiles.
+	}
+	else{
+
+	  collision_item * ci = item_list_push(collision_stack);
+	  ci->collider1 = (collision_data_part){ id, p, s};
+	  ci->collider2 = (collision_data_part){ other.id, other.pos, other.size};
+	}
+      }
+	     
+      entity_stack_item * i = item_list_push(entity_stack);
+      i->pos = p;
+      i->size = s;
+      i->id = id;
+    }
+
+    octree_iterate_on(ctx);
+    
+    lst = octree_index_payload_list(index);
+    
+    for(;lst.ptr != 0; lst = list_index_next(lst))
+      item_list_pop(entity_stack);
+  }
+
+typedef struct{
+  octree_index topnode;
+  move_request * move_req;
+  collision_item * collision_stack;
+  octree_iterator * it;
+  entity_stack_item * entity_stack;
+}move_resolver;
+
+move_resolver * move_resolver_new(octree_index topnode){
+  move_resolver * mv = alloc0(sizeof(move_resolver));
+  mv->move_req = move_request_create(NULL);
+  mv->entity_stack = item_list_new(sizeof(mv->entity_stack[0]));
+  mv->collision_stack = item_list_new(sizeof(mv->collision_stack[0]));
+  mv->it = octree_iterator_new(topnode);
+  mv->topnode = topnode;
+  return mv;
+}
+
+void resolve_moves(move_resolver * mv){
+  let it = mv->it;
+  let topnode = mv->topnode;
+  let move_req = mv->move_req;
+			     
+  for(u64 i = 0; i < move_req->count; i++){
+    u32 e = move_req->entity[i + 1];
+    game_ctx->entity_ctx->offset[e] = vec3_add(game_ctx->entity_ctx->offset[e], move_req->move[i + 1]);
+  }
+
+  for(int _i = 0; _i < 3; _i++){
+    octree_iterate(topnode, 1, vec3_zero, remove_subs); // remove sub entities
+    game_ctx->entity_sub_ctx->count = 0; // clear the list.
+    octree_iterator_iterate(it, 1, vec3_zero, update_entity_nodes);
+    octree_iterator_iterate(it, 1, vec3_zero, gen_subs); //recreate
+    ASSERT(item_list_count(mv->entity_stack) == 0);
+
+      item_list_clear(&mv->collision_stack);
+      item_list_clear(&mv->entity_stack);
+      void dd(const octree_index_ctx * ctx){
+	detect_possible_collisions(ctx, &mv->collision_stack, &mv->entity_stack);
+      }
+      octree_iterate(topnode, 1, vec3_zero, dd); //recreate
+      u32 collision_count = item_list_count(mv->collision_stack);
+      
+      void get_collision_data(collision_data_part part, vec3 * o_offset, float * o_s, octree_index * o_model, u32 * real_collider){
+	*o_offset = part.position;
+	*o_s = part.size;
+	*o_model = (octree_index){0};
+	//*real_collider = part.id;
+	u32 id = part.id;
+	*real_collider = id;//game_ctx->entity_id[id];
+	ASSERT(id != 0);
+	if(get_type(id) ==  GAME_ENTITY_TILE){
+	  return;
+	}
+	if(get_type(id) == GAME_ENTITY_SUB_ENTITY){
+	  u32 subid = game_ctx->entity_id[id];
+	  u32 eid = game_ctx->entity_id[game_ctx->entity_sub_ctx->entity[subid]];
+	  vec3 offset2 = game_ctx->entity_sub_ctx->offset[subid];
+	  *o_offset = vec3_add(*o_offset, vec3_scale(offset2, part.size));
+	  
+	  vec3 offset3 = game_ctx->entity_ctx->offset[eid];
+	  *o_offset = vec3_add(*o_offset, vec3_scale(offset3, part.size));
+	  *o_model = game_ctx->entity_ctx->model[eid];
+	  *real_collider = game_ctx->entity_sub_ctx->entity[subid];
+	}
+	
+	if(get_type(id) == GAME_ENTITY){
+	  u32 eid = game_ctx->entity_id[id];
+	  vec3 offset3 = game_ctx->entity_ctx->offset[eid];
+	  *o_offset = vec3_add(*o_offset, vec3_scale(offset3, part.size));
+	  *o_model = game_ctx->entity_ctx->model[eid];
+	}
+      }
+      for(u32 i = 0; i < collision_count; i++){
+	u32 ids[2] = {0};
+	vec3 o1, o2;
+	float s1, s2;
+	octree_index m1, m2;
+
+	get_collision_data(mv->collision_stack[i].collider1, &o1, &s1, &m1, ids);
+	get_collision_data(mv->collision_stack[i].collider2, &o2, &s2, &m2, ids + 1);
+	if(ids[0] == ids[1]) continue;
+	collision_data cd;
+	if(calc_collision(o1, o2, s1, s2, m1, m2, &cd)){
+	  for(u32 j = 0; j < 2; j++){
+	    u32 gid = ids[j];
+	    if(get_type(gid) == GAME_ENTITY_TILE)
+	      continue;
+;
+	    u32 e = game_ctx->entity_id[gid];
+	    vec3 unused;
+
+	    if(move_request_try_get(move_req, &e, &unused)){
+	      game_ctx->entity_ctx->offset[e] = vec3_sub(game_ctx->entity_ctx->offset[e], unused);
+	      move_request_unset(move_req, e);
+	      break;
+	    }
+	  }
+	}
+      }
+    }
+  
+  //logd("Successfull moves: %i\n", move_req->count);
+  move_request_clear(mv->move_req);
+}
+
 
 int main(){
   list_entity_test();
@@ -522,8 +874,7 @@ int main(){
     game_ctx->entity_id[id] = color;
     return list_entity_push(game_ctx->lists, 0, id);
   }
-  
-    
+      
   u32 l3 = create_tile(34);
 
   u32 l4 = create_tile(55);
@@ -537,24 +888,27 @@ int main(){
     octree_index_get_payload(octree_index_get_childi(index, 2))[0] = create_tile(199);
     octree_index_get_payload(octree_index_get_childi(index, 1))[0] = l3;
   }
-
   
   u32 i1 = game_context_alloc(game_ctx);
   u32 e1 = entities_alloc(game_ctx->entity_ctx);
-  
+  logd("E1: %i/%i\n", i1, e1);
   game_ctx->entity_type[i1] = GAME_ENTITY;
   game_ctx->entity_id[i1] = e1;
   game_ctx->entity_ctx->model[e1] = submodel->first_index;
+  game_ctx->entity_ctx->offset[e1] = vec3_new(1,0.5,0.0);
   u32 l1 = list_entity_push(game_ctx->lists, 0, i1);
-
+  u32 e2;
   u32 l6 = 0;
   {
     u32 i1 = game_context_alloc(game_ctx);
     u32 e1 = entities_alloc(game_ctx->entity_ctx);
+    e2 = e1;
+    logd("E2: %i/%i\n", i1, e1);
     game_ctx->entity_type[i1] = GAME_ENTITY;
     game_ctx->entity_id[i1] = e1;
     game_ctx->entity_ctx->model[e1] = submodel->first_index;
-    l6 = list_entity_push(game_ctx->lists, 0, i1);
+    l1 = list_entity_push(game_ctx->lists, l1, i1);
+    game_ctx->entity_ctx->offset[e1] = vec3_new(0,0.0,0.5);
   }
   
   octree * oct = octree_new();
@@ -566,13 +920,14 @@ int main(){
   octree_iterator_child(it, 0, 0, 0);
   octree_iterator_child(it, 1, 1, 1);
   octree_iterator_child(it, 0, 0, 0);
-  octree_iterator_child(it, 1, 1, 1);
+  octree_iterator_child(it,1, 1, 1);
   octree_iterator_child(it, 0, 0, 0);
-  octree_iterator_move(it,3, 0, 3);
+  UNUSED(l6);
+  octree_iterator_move(it,0, -1, 3);
   octree_iterator_payload(it)[0] = l1;
-  octree_iterator_move(it, 2, 0, 0);
-  octree_iterator_payload(it)[0] = l6;
-  octree_iterator_move(it, -2, 0, 0);
+  //octree_iterator_move(it, 0, 0, 0);
+  //octree_iterator_payload(it)[0] = l6;
+  //octree_iterator_move(it, 0, 0, 0);
   octree_iterator_move(it,-2, -1, -2);
 
   u32 current_color = l4;
@@ -608,159 +963,9 @@ int main(){
   }
   
   octree_iterator_destroy(&it);
-
-  void remove_subs(const octree_index_ctx * ctx){
-    const octree_index index = ctx->index;
-    float s = ctx->s;
-    vec3 p = ctx->p;
-    UNUSED(s);
-    UNUSED(p);
-    bool remove_sub(u32 payload){
-      if(payload == 0)
-	return false;
-      
-      if(game_ctx->entity_type[payload] != GAME_ENTITY_SUB_ENTITY)
-	return false;
-      game_ctx->entity_type[payload] = 0;
-      game_ctx->entity_id[payload] = 0;
-      game_context_free(game_ctx, payload);
-      return true;
-    }
-    list_index lst = octree_index_payload_list(index);
-    while(lst.ptr != 0){
-      if(remove_sub(list_index_get(lst))){
-	lst = list_index_pop(lst);
-	if(lst.ptr == 0)
-	  break;
-	
-      }
-      lst = list_index_next(lst);
-    }
-    octree_iterate_on(ctx);
-  }
-  
-  void gen_subs(const octree_iterator * i, float s, vec3 p){
-    UNUSED(p);
-    UNUSED(s);
-    list_index lst = octree_iterator_payload_list(i);
-    for(;lst.ptr != 0; lst = list_index_next(lst)){
-      u32 id = list_index_get(lst);
-      u32 type = game_ctx->entity_type[id];
-      u32 val = game_ctx->entity_id[id];
-      if(type == GAME_ENTITY){
-	vec3 offset = game_ctx->entity_ctx->offset[val];
-
-	if(vec3_sqlen(vec3_abs(offset)) > 0.001){
-	  
-	  octree_iterator * i2 = octree_iterator_clone(i);
-
-	  for(int i = 1; i < 8; i++){
-	    int dim[] = {i % 2, (i / 2) % 2, (i / 4) % 2};
-	    if(octree_iterator_try_move(i2, dim[0], dim[1], dim[2])){
-	      u32 xnode_ent = game_context_alloc(game_ctx);
-	      u32 xnode = entity_sub_offset_alloc(game_ctx->entity_sub_ctx);
-	      vec3 newoffset = vec3_zero;
-	      for(int j = 0; j < 3; j++)
-		newoffset.data[j] -= dim[j];	
-	      game_ctx->entity_sub_ctx->offset[xnode] = newoffset;
-	      game_ctx->entity_sub_ctx->entity[xnode] = id;
-	      list_index l2 = octree_iterator_payload_list(i2);
-	      game_ctx->entity_type[xnode_ent] = GAME_ENTITY_SUB_ENTITY;
-	      game_ctx->entity_id[xnode_ent] = xnode;
-	      let l3 = list_index_push(l2, xnode_ent);
-	      UNUSED(l3);
-	    }
-	    octree_iterator_move(i2, -dim[0], -dim[1], -dim[2]);  
-	  }
-	  octree_iterator_destroy(&i2);
-	}
-      }
-    }
-  }
-
   
   it = octree_iterator_new(oct->first_index);
-  void fix_collisions(const octree_iterator * i, float s, vec3 p){
-    UNUSED(p);
-    UNUSED(s);
-    list_index lst = octree_iterator_payload_list(i);
-    for(;lst.ptr != 0; lst = list_index_next(lst)){
-      
-      u32 id = list_index_get(lst);
-      u32 type = game_ctx->entity_type[id];
-      u32 val = game_ctx->entity_id[id];
-      if(type == GAME_ENTITY){
-	vec3 offset = game_ctx->entity_ctx->offset[val];
-	vec3 r = vec3_new(floorf(offset.x), floorf(offset.y), floorf(offset.z));
-	if(vec3_sqlen(vec3_abs(r)) < 0.1)
-	  return;
-	int x = (int)r.x, y = (int)r.y, z = (int)r.z;
-	octree_iterator * i2 = octree_iterator_clone(i);
-	if(!octree_iterator_try_move(i2, x, y, z))
-	  return;
-
-	list_index lst2 = octree_iterator_payload_list(i2);
-	lst = list_index_pop(lst);
-	lst = list_index_push(lst2, id);
-	game_ctx->entity_ctx->offset[val] = vec3_sub(game_ctx->entity_ctx->offset[val], r);
-	
-	octree_iterator_destroy(&i2);      
-      }
-    }
-  }
-
-  entity_stack_item * entity_stack = item_list_new(sizeof(entity_stack_item));
-
-  collision_item * collision_stack = item_list_new(sizeof(collision_stack[0]));
-  
-  game_entity_kind get_type(u32 id){
-    ASSERT(game_ctx->count > id);
-    return game_ctx->entity_type[id];
-  }
-  
-  void detect_collisions(const octree_index_ctx * ctx){
-    const octree_index index = ctx->index;
-    float s = ctx->s;
-    vec3 p = ctx->p;
-    UNUSED(p);
-    UNUSED(s);
-    UNUSED(index);
-    list_index lst = octree_index_payload_list(index);
-    for(;lst.ptr != 0; lst = list_index_next(lst)){
-      u32 id = list_index_get(lst);
-      game_entity_kind type = game_ctx->entity_type[id];
-      ASSERT(type != 0);
-      u32 cnt = item_list_count(entity_stack);
-	
-      for(u32 i = 0; i < cnt; i++){
-	//logd("THIS HAPPENS! %i %i\n", i, cnt);
-	entity_stack_item other =  entity_stack[i];
-	game_entity_kind other_type = get_type(other.id);
-	
-	if(other_type == GAME_ENTITY_TILE && type == GAME_ENTITY_TILE){
-	  // skip collision between two tiles.
-	}
-	else{
-	  collision_item * ci = item_list_push(&collision_stack);
-	  ci->collider1 = (collision_data_part){ id, p, s};
-	  ci->collider2 = (collision_data_part){ other.id, other.pos, other.size};
-	}
-      }
-	     
-      entity_stack_item * i = item_list_push(&entity_stack);
-      i->pos = p;
-      i->size = s;
-      i->id = id;
-    }
-
-    octree_iterate_on(ctx);
     
-    lst = octree_index_payload_list(index);
-    
-    for(;lst.ptr != 0; lst = list_index_next(lst))
-      item_list_pop(&entity_stack);
-  }
-
   glfwInit();
   
   glfwWindowHint( GLFW_OPENGL_DEBUG_CONTEXT, true);
@@ -785,50 +990,42 @@ int main(){
     vec2 newpos = vec2_new(x, y);
     cursorMove = vec2_sub(newpos, cursorPos);
     cursorPos = newpos;
-    vec2_print(newpos);logd("\n");
+    //vec2_print(newpos);logd("\n");
   }
-  
+  bool next = true;
+  void keyfun(GLFWwindow* w,int k,int s,int a,int m){
+    UNUSED(w);UNUSED(k);UNUSED(s);UNUSED(m);
+    if(a == 1)
+      next = true;
+  }
+
+  glfwSetKeyCallback(win, keyfun);
   glfwSetCursorPosCallback(win, cursorMoved);
   render_offset = vec3_new(0,-15,0);
   render_zoom = 19;
+  move_resolver * mv = move_resolver_new(oct->first_index);
   
-  while(glfwWindowShouldClose(win) == false){
+  octree_iterator_iterate(it, 1, vec3_zero, update_entity_nodes);
+  
+  item_list_clear(&mv->collision_stack);
+  item_list_clear(&mv->entity_stack);
+  void dd(const octree_index_ctx * ctx){
+    detect_possible_collisions(ctx, &mv->collision_stack, &mv->entity_stack);
+  }
+  vec3_print(game_ctx->entity_ctx->offset[e2]);
+  vec3_print(game_ctx->entity_ctx->offset[e1]); logd("\n");
+  octree_iterate(mv->topnode, 1, vec3_zero, dd); //recreate
+  //ASSERT(game_ctx->entity_ctx->offset[e1].y > 0);
+  //ASSERT(game_ctx->entity_ctx->offset[e2].y > 0);
 
-    octree_iterate(oct->first_index, 1, vec3_zero, remove_subs); // remove sub entities
-
-    int up = glfwGetKey(win, GLFW_KEY_UP);
-    int down = glfwGetKey(win, GLFW_KEY_DOWN);
-    int right = glfwGetKey(win, GLFW_KEY_RIGHT);
-    int left = glfwGetKey(win, GLFW_KEY_LEFT);
-    int w = glfwGetKey(win, GLFW_KEY_W);
-    int s = glfwGetKey(win, GLFW_KEY_S);
-    vec3 move = vec3_new((right - left) * 0.01, (w - s) * 0.04, (up - down) * 0.01);
-    move.y -= 0.02;
-    vec3_print(game_ctx->entity_ctx->velocity[e1]);logd("\n");
-    game_ctx->entity_ctx->velocity[e1] = vec3_add(move, vec3_scale(game_ctx->entity_ctx->velocity[e1], 0.90));
-    //vec3 prev = game_ctx->entity_ctx->offset[e1];
-    game_ctx->entity_ctx->offset[e1] = vec3_add(game_ctx->entity_ctx->velocity[e1], game_ctx->entity_ctx->offset[e1]);
-    game_ctx->entity_sub_ctx->count = 0; // clear the list.
-    octree_iterator_iterate(it, 1, vec3_zero, fix_collisions);
-    octree_iterator_iterate(it, 1, vec3_zero, gen_subs); //recreate
-
-    ASSERT(item_list_count(entity_stack) == 0);
-    for(int _i = 0; _i < 3; _i++){
-      item_list_clear(&collision_stack);
-      octree_iterate(oct->first_index, 1, vec3_zero, detect_collisions); //recreate
-      u32 collision_count = item_list_count(collision_stack);
-      
-      u32 get_real_collider(u32 collider){
-	if(game_ctx->entity_type[collider] == GAME_ENTITY_SUB_ENTITY)
-	  collider = game_ctx->entity_sub_ctx->entity[game_ctx->entity_id[collider]];
-	return collider;
-      }
-      UNUSED(get_real_collider);
-      void get_collision_data(collision_data_part part, vec3 * o_offset, float * o_s, octree_index * o_model){
+  u32 collision_count = item_list_count(mv->collision_stack);
+  void get_collision_data(collision_data_part part, vec3 * o_offset, float * o_s, octree_index * o_model, u32 * real_collider){
 	*o_offset = part.position;
 	*o_s = part.size;
 	*o_model = (octree_index){0};
+	//real_collider = part.id;
 	u32 id = part.id;
+	*real_collider = id;//game_ctx->entity_id[id];
 	ASSERT(id != 0);
 	if(get_type(id) ==  GAME_ENTITY_TILE){
 	  return;
@@ -841,7 +1038,8 @@ int main(){
 	  
 	  vec3 offset3 = game_ctx->entity_ctx->offset[eid];
 	  *o_offset = vec3_add(*o_offset, vec3_scale(offset3, part.size));
-	  *o_model = game_ctx->entity_ctx->model[eid];	
+	  *o_model = game_ctx->entity_ctx->model[eid];
+	  *real_collider = game_ctx->entity_sub_ctx->entity[subid];
 	}
 	
 	if(get_type(id) == GAME_ENTITY){
@@ -851,48 +1049,48 @@ int main(){
 	  *o_model = game_ctx->entity_ctx->model[eid];
 	}
       }
-      bool col = false;
-      vec3 cv = vec3_zero;
-      for(u32 i = 0; i < collision_count; i++){
-	vec3 o1, o2;
-	float s1, s2;
-	octree_index m1, m2;
-	get_collision_data(collision_stack[i].collider1, &o1, &s1, &m1);
-	get_collision_data(collision_stack[i].collider2, &o2, &s2, &m2);
-	vec3 cc = vec3_zero;
-	if(calc_collision(o1, o2, s1, s2, m1, m2, &cc)){
-	  col = true;
-	  // 1/s2 -> transform to local coordinates.
-	  cv=vec3_scale(cc, 1.0 / s2);
-	  if(fabs(cv.y) >= 0.0001f){
-	    if(SIGN(game_ctx->entity_ctx->velocity[e1].y) != SIGN(cv.y)){
-	      game_ctx->entity_ctx->velocity[e1].y = 0;
-	    }
-	  }
 
-	  if(cv.z != 0.0f){
-	    if(SIGN(game_ctx->entity_ctx->velocity[e1].z) != SIGN(cv.z)){
-	      game_ctx->entity_ctx->velocity[e1].z= 0;
-	    }
-	  }
+  u32 ids[2] = {0};
+  vec3 o1, o2;
+  float s1, s2;
+  octree_index m1, m2;
+  
+  get_collision_data(mv->collision_stack[0].collider1, &o1, &s1, &m1, ids);
+  get_collision_data(mv->collision_stack[0].collider2, &o2, &s2, &m2, ids + 1);
+  logd("%i %i\n", ids[0], ids[1]);
+  logd("Count: %i\n", collision_count);
+  //ASSERT(collision_count == 2);
+  //return 0;
+  
+  while(glfwWindowShouldClose(win) == false){
 
-	  if(fabs(cv.x) > 0.01f){
-	    if(SIGN(game_ctx->entity_ctx->velocity[e1].x) != SIGN(cv.x)){
-	      logd("Yes.. %f\n", cv.x);
-	      game_ctx->entity_ctx->velocity[e1].x= 0;
-	    }
-	  }
-	  
-	}
+
+    int up = glfwGetKey(win, GLFW_KEY_UP);
+    int down = glfwGetKey(win, GLFW_KEY_DOWN);
+    int right = glfwGetKey(win, GLFW_KEY_RIGHT);
+    int left = glfwGetKey(win, GLFW_KEY_LEFT);
+    int w = glfwGetKey(win, GLFW_KEY_W);
+    int s = glfwGetKey(win, GLFW_KEY_S);
+    vec3 move = vec3_new((right - left) * 0.25, (w - s) * 0.25, (up - down) * 0.25);
+    //vec3_print(move);logd("\n");
+    next = true;
+    if(next){
+      for(u32 i = 1; i < game_ctx->entity_ctx->count; i++){
+	move_request_set(mv->move_req, i, vec3_new(0, -0.25, 0));
       }
-      if(col){
-	game_ctx->entity_ctx->offset[e1] = vec3_add(game_ctx->entity_ctx->offset[e1], cv);
-      }
+      //logd("move resolve %i\n", _idx++);
+      resolve_moves(mv);    
+      move_request_clear(mv->move_req);
+      next = false;
+    
+    
+    if(vec3_len(move) > 0.1){
+      move_request_set(mv->move_req, e1, move);
+      resolve_moves(mv);
     }
-
-    octree_iterate(oct->first_index, 1, vec3_zero, remove_subs); // remove sub entities
-    octree_iterator_iterate(it, 1, vec3_zero, fix_collisions);
-    octree_iterator_iterate(it, 1, vec3_zero, gen_subs); //recreate    
+    }
+    
+        
     int width = 0, height = 0;
     glfwGetWindowSize(win,&width, &height);
     if(width > 0 && height > 0)
@@ -910,8 +1108,8 @@ int main(){
     cursorMove = vec2_zero;
     glfwPollEvents();
 
-    iron_sleep(0.03);
-    logd("%i \n", 0.0 == -0.0);
+    iron_sleep(0.15);
+    //vec3_print(game_ctx->entity_ctx->velocity[e1]);logd("\n");
       
   }
 }
