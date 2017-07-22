@@ -630,8 +630,8 @@ void remove_subs(const octree_index_ctx * ctx){
       if(lst.ptr == 0)
 	break;
 	
-    }
-    lst = list_index_next(lst);
+    }else
+      lst = list_index_next(lst);
   }
   octree_iterate_on(ctx);
 }
@@ -895,7 +895,7 @@ int main(){
   game_ctx->entity_type[i1] = GAME_ENTITY;
   game_ctx->entity_id[i1] = e1;
   game_ctx->entity_ctx->model[e1] = submodel->first_index;
-  game_ctx->entity_ctx->offset[e1] = vec3_new(1,0.5,0.0);
+  game_ctx->entity_ctx->offset[e1] = vec3_new(0,4,0.0);
   u32 l1 = list_entity_push(game_ctx->lists, 0, i1);
   u32 e2;
   u32 l6 = 0;
@@ -908,9 +908,32 @@ int main(){
     game_ctx->entity_id[i1] = e1;
     game_ctx->entity_ctx->model[e1] = submodel->first_index;
     l1 = list_entity_push(game_ctx->lists, l1, i1);
-    game_ctx->entity_ctx->offset[e1] = vec3_new(0,0.0,0.5);
+    game_ctx->entity_ctx->offset[e1] = vec3_new(0,0.0,0.0);
   }
-  
+  /*
+  {
+    u32 i1 = game_context_alloc(game_ctx);
+    u32 e1 = entities_alloc(game_ctx->entity_ctx);
+    e2 = e1;
+    logd("E2: %i/%i\n", i1, e1);
+    game_ctx->entity_type[i1] = GAME_ENTITY;
+    game_ctx->entity_id[i1] = e1;
+    game_ctx->entity_ctx->model[e1] = submodel->first_index;
+    l1 = list_entity_push(game_ctx->lists, l1, i1);
+    game_ctx->entity_ctx->offset[e1] = vec3_new(0,6.0,0.0);
+    }*/
+  for(int i = 2; i < 50; i += 2)
+    {
+    u32 i1 = game_context_alloc(game_ctx);
+    u32 e1 = entities_alloc(game_ctx->entity_ctx);
+    e2 = e1;
+    logd("E2: %i/%i\n", i1, e1);
+    game_ctx->entity_type[i1] = GAME_ENTITY;
+    game_ctx->entity_id[i1] = e1;
+    game_ctx->entity_ctx->model[e1] = submodel->first_index;
+    l1 = list_entity_push(game_ctx->lists, l1, i1);
+    game_ctx->entity_ctx->offset[e1] = vec3_new(0,4 + i,0.0);
+  }
   octree * oct = octree_new();
   octree_index idx = oct->first_index;
   
