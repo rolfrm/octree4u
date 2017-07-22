@@ -1,5 +1,5 @@
 OPT = -g3 -ggdb -O0
-LIB_SOURCES1 = main.c octree_iterate.c octree.c
+LIB_SOURCES1 = main.c octree_iterate.c octree.c item_list.c
 LIB_SOURCES = $(addprefix src/, $(LIB_SOURCES1))
 CC = gcc
 TARGET = run.exe

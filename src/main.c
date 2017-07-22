@@ -15,7 +15,7 @@
 
 #include "octree.h"
 #include "main.h"
-
+#include "item_list.h"
 #include <valgrind/memcheck.h>
 #define MAKE_UNDEFINED(x) VALGRIND_MAKE_MEM_UNDEFINED(&(x),sizeof(x));
 
@@ -386,10 +386,10 @@ void render_color(u32 color, float size, vec3 p){
     for(int j = 0; j < 3; j++){
       if(p.data[j] < bound_lower.data[j]){
 	s.data[j] -= (bound_lower.data[j] - p.data[j]);
-	p.data[j] =bound_lower.data[j];
-	
+	p.data[j] =bound_lower.data[j];	
       }
     }
+    
     glUniform3f(glGetUniformLocation(game_ctx->prog, "position"), p.x * render_zoom + render_offset.x, p.y * render_zoom + render_offset.y, p.z * render_zoom + render_offset.z);
     if(bound_upper.x < 1.0){
       vec3 p2 = vec3_add(p, s);
@@ -422,82 +422,6 @@ typedef struct{
   vec3 pos;
 }entity_stack_item;
 
-typedef struct{
-  u32 capacity;
-  u32 count;
-  u32 elem_size;
-  u32 magic;
-}item_list_impl;
-
-const u32 item_list_magic = 0xFF43AA54;
-
-void * item_list_new(u32 elem_size){
-  item_list_impl * ilist = alloc0(sizeof(item_list_impl));
-  ilist->magic = item_list_magic;
-  ilist->elem_size = elem_size;
-  return &ilist[1];
-}
-
-void * item_list_push(void * item_list_ptr){
-  item_list_impl ** p_ilist = item_list_ptr;
-  item_list_impl * ilist = *p_ilist;
-  ilist = &ilist[-1];
-  ASSERT(ilist->magic == item_list_magic);
-  if(ilist->capacity == ilist->count){
-    u32 newcap = MAX(8, ilist->capacity * 2);
-    ilist = ralloc(ilist, sizeof(ilist[0]) + newcap * ilist->elem_size);
-    ilist->capacity = newcap;
-  }
-  *p_ilist = (ilist + 1);
-  ilist->count++;
-  return (void *)(ilist + 1) + (ilist->count - 1) * ilist->elem_size;
-}
-
-u32 item_list_count(void * item_list){
-  item_list_impl * ilist = item_list;
-  ilist = ilist - 1;
-  ASSERT(ilist->magic == item_list_magic);
-  return ilist->count;
-}
-
-void item_list_destroy(void * item_list_ptr){
-  item_list_impl ** p_ilist = item_list_ptr;
-  item_list_impl * ilist = (*p_ilist) - 1;
-  ASSERT(ilist->magic == item_list_magic);
-  dealloc(ilist);
-  *p_ilist = NULL;
-}
-
-void item_list_pop(void * item_list_ptr){
-  item_list_impl ** p_ilist = item_list_ptr;
-  item_list_impl * ilist = (*p_ilist) - 1;
-  ASSERT(ilist->magic == item_list_magic);
-  ilist->count -= 1;
-}
-
-void item_list_clear(void * item_list_ptr){
-  item_list_impl ** p_ilist = item_list_ptr;
-  item_list_impl * ilist = (*p_ilist) - 1;
-  ASSERT(ilist->magic == item_list_magic);
-  ilist->count = 0;
-}
-
-void item_list_test(){
-  entity_stack_item * entity_stack = item_list_new(sizeof(entity_stack_item));
-  for(u32 i = 0; i < 100; i++){
-    item_list_push(&entity_stack);
-    entity_stack[i].id = i + 10;
-  }
-  for(u32 i = 0; i < 100; i++){
-    ASSERT(entity_stack[i].id == i + 10);
-  }
-  for(u32 i = 0; i < 100; i++){
-    item_list_pop(&entity_stack);
-    ASSERT(item_list_count(entity_stack) == 99 - i);
-  }
-  item_list_destroy(&entity_stack);
-  item_list_test();
-}
 
 typedef struct{
   u32 id;
@@ -940,20 +864,21 @@ int main(){
 	  col = true;
 	  // 1/s2 -> transform to local coordinates.
 	  cv=vec3_scale(cc, 1.0 / s2);
-	  if(cc.y != 0.0f){
-	    if(SIGN(game_ctx->entity_ctx->velocity[e1].y) != SIGN(cc.y)){
+	  if(fabs(cv.y) >= 0.0001f){
+	    if(SIGN(game_ctx->entity_ctx->velocity[e1].y) != SIGN(cv.y)){
 	      game_ctx->entity_ctx->velocity[e1].y = 0;
 	    }
 	  }
 
-	  if(cc.z != 0.0f){
-	    if(SIGN(game_ctx->entity_ctx->velocity[e1].z) != SIGN(cc.z)){
+	  if(cv.z != 0.0f){
+	    if(SIGN(game_ctx->entity_ctx->velocity[e1].z) != SIGN(cv.z)){
 	      game_ctx->entity_ctx->velocity[e1].z= 0;
 	    }
 	  }
 
-	  if(cc.x != 0.0f){
-	    if(SIGN(game_ctx->entity_ctx->velocity[e1].x) != SIGN(cc.x)){
+	  if(fabs(cv.x) > 0.01f){
+	    if(SIGN(game_ctx->entity_ctx->velocity[e1].x) != SIGN(cv.x)){
+	      logd("Yes.. %f\n", cv.x);
 	      game_ctx->entity_ctx->velocity[e1].x= 0;
 	    }
 	  }
