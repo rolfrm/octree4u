@@ -14,7 +14,6 @@ typedef enum{
 typedef struct{
   vec3 * offset;
   octree_index * model;
-  //vec3 * velocity;
   u32 count;
   u32 capacity;
 }entities;
@@ -60,12 +59,14 @@ typedef struct{
 game_context * game_context_new();
 u32 game_context_alloc(game_context * ctx);
 void game_context_free(game_context * ctx, u32 index);
-
+void game_context_destroy(game_context ** ctx);
 entities * entities_new();
+void entities_destroy(entities ** ent);
 u32 entities_alloc(entities * ctx);
 
 u32 entity_sub_offset_alloc(entity_sub_offset * ctx);
 entity_sub_offset * entity_sub_offset_new();
+void entity_sub_offset_destroy(entity_sub_offset ** sub);
 
 list_entity * list_entity_new();
 void list_entity_destroy(list_entity **lst);

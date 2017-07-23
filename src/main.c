@@ -89,6 +89,15 @@ game_context * game_context_new(){
   return gctx;
 }
 
+void game_context_destroy(game_context ** ctx){
+  game_context * c = *ctx;
+  *ctx = NULL;
+  entities_destroy(&c->entity_ctx);
+  entity_sub_offset_destroy(&c->entity_sub_ctx);
+  list_entity_destroy(&c->lists);
+
+}
+
 // Allocates a game entitiy.
 u32 game_context_alloc(game_context * ctx){
   u32 newidx = 0;
@@ -131,6 +140,14 @@ entities * entities_new(){
   return gctx;
 }
 
+void entities_destroy(entities ** ent){
+  var e = *ent;
+  *ent = NULL;
+  dealloc(e->offset);
+  dealloc(e->model);
+  dealloc(e);
+}
+
 // Allocates a game entitiy.
 u32 entities_alloc(entities * ctx){
   if(ctx->count == ctx->capacity){
@@ -167,6 +184,13 @@ entity_sub_offset * entity_sub_offset_new(){
   return gctx;
 }
 
+void entity_sub_offset_destroy(entity_sub_offset ** sub){
+  var s = *sub;
+  *sub = NULL;
+  dealloc(s->offset);
+  dealloc(s->entity);
+  dealloc(s);
+}
 
 list_entity * list_entity_new(){
   list_entity * lst = alloc0(sizeof(list_entity));
@@ -803,9 +827,8 @@ void resolve_moves(move_resolver * mv){
 	*o_offset = part.position;
 	*o_s = part.size;
 	*o_model = (octree_index){0};
-	//*real_collider = part.id;
 	u32 id = part.id;
-	*real_collider = id;//game_ctx->entity_id[id];
+	*real_collider = id;
 	ASSERT(id != 0);
 	if(get_type(id) ==  GAME_ENTITY_TILE){
 	  return;
@@ -858,14 +881,88 @@ void resolve_moves(move_resolver * mv){
       }
     }
   
-  //logd("Successfull moves: %i\n", move_req->count);
   move_request_clear(mv->move_req);
 }
 
+u32 trace_ray(octree_index * index, vec3 p, vec3 dir){
+  p = vec3_scale(p, 2);   
+  float stoppts[9];
+
+  { // calculate stop points, which are where the dir vector
+    // crosses the axis lines at 0, 0.5 and 1.
+    int idx = 0;
+    float * pt = stoppts;
+    for(int i = 0; i < 3; i++){
+      for(int d = 0; d <= 2; d += 1){
+	ASSERT(idx < 9);
+	*pt = ((float)d - p.data[i]) / dir.data[i];
+	pt += 1;
+	idx++;
+      }
+    }
+    int cmpf32(float * a, float * b){
+      if(*a < *b)
+	return 1;
+      if(*a > *b)
+	return -1;
+      return 0;
+    }
+    qsort(stoppts, 9, sizeof(stoppts[0]), (void *)cmpf32);
+  }
+
+  float offset = 0.0;
+
+  for(int i = 0; i < 9; i++){
+    if(stoppts[i] < 0){
+      continue;
+    }
+    vec3 p2 = vec3_add(p, vec3_scale(dir, offset));
+    int x = floor(p2.x);
+    int y = floor(p2.y);
+    int z = floor(p2.z);
+    if(x < 0 || x >= 2 || y < 0 || y >= 2 || z < 0 || z >= 2){
+      // no hit. skip this point
+    }else{
+      u32 cellid = x + y * 2 + z * 4;
+      ASSERT(cellid < 8);
+      octree_index subi = octree_index_get_childi(*index, cellid);
+      u32 * pl = octree_index_get_payload(subi);
+      if(pl[0] != 0)
+	return 1;
+      u32 cell = trace_ray(index + 1, vec3_new(p.x - x, p.y - y, p.z - z), dir);
+      if(cell != 0)
+	return cell;
+    }
+    
+    offset = stoppts[i];
+  }  
+  return 0;
+}
+
+void test_trace_ray(){
+  game_ctx = game_context_new();
+  octree * oct = octree_new();
+  u32 create_tile(u32 color){
+    u32 id = game_context_alloc(game_ctx);
+    game_ctx->entity_type[id] = GAME_ENTITY_TILE;
+    game_ctx->entity_id[id] = color;
+    return list_entity_push(game_ctx->lists, 0, id);
+  }
+  octree_iterator * it = octree_iterator_new(oct->first_index);
+  octree_iterator_child(it, 0, 0, 0);
+  octree_iterator_child(it, 0, 0, 0);
+  octree_iterator_payload(it)[0] = create_tile(10);
+  octree_index indexes[10];
+  indexes[0] = oct->first_index;
+  u32 hit = trace_ray(indexes, vec3_new(0, 0, 0), vec3_new(1,1,1));
+  ASSERT(hit != 0);
+  game_context_destroy(&game_ctx);
+}
 
 int main(){
   list_entity_test();
   octree_test();
+  //test_trace_ray();
   game_ctx = game_context_new();
 
   u32 create_tile(u32 color){
@@ -880,7 +977,7 @@ int main(){
   u32 l4 = create_tile(55);
   u32 l5 = create_tile(149);
   u32 l2 = create_tile(17);
-
+  UNUSED(l5);
   octree * submodel = octree_new();
   {
     octree_index index = submodel->first_index;
@@ -910,18 +1007,7 @@ int main(){
     l1 = list_entity_push(game_ctx->lists, l1, i1);
     game_ctx->entity_ctx->offset[e1] = vec3_new(0,0.0,0.0);
   }
-  /*
-  {
-    u32 i1 = game_context_alloc(game_ctx);
-    u32 e1 = entities_alloc(game_ctx->entity_ctx);
-    e2 = e1;
-    logd("E2: %i/%i\n", i1, e1);
-    game_ctx->entity_type[i1] = GAME_ENTITY;
-    game_ctx->entity_id[i1] = e1;
-    game_ctx->entity_ctx->model[e1] = submodel->first_index;
-    l1 = list_entity_push(game_ctx->lists, l1, i1);
-    game_ctx->entity_ctx->offset[e1] = vec3_new(0,6.0,0.0);
-    }*/
+  
   for(int i = 2; i < 50; i += 2)
     {
     u32 i1 = game_context_alloc(game_ctx);
@@ -948,41 +1034,20 @@ int main(){
   UNUSED(l6);
   octree_iterator_move(it,0, -1, 3);
   octree_iterator_payload(it)[0] = l1;
-  //octree_iterator_move(it, 0, 0, 0);
-  //octree_iterator_payload(it)[0] = l6;
-  //octree_iterator_move(it, 0, 0, 0);
-  octree_iterator_move(it,-2, -1, -2);
+  octree_iterator_move(it,-5, -1, -8);
 
   u32 current_color = l4;
-  for(int j = 0; j < 5; j++){
-    for(int i = 0; i < 5; i++){
+  for(int j = 0; j < 21; j++){
+    for(int i = 0; i < 21; i++){
       octree_iterator_move(it,1, 0, 0);
-      //if(i != 2 && j != 2 && j != 3)
+      
       octree_iterator_payload(it)[0] = current_color;
       if(current_color == l2)
 	current_color = l4;
       else
 	current_color = l2;
     }
-    octree_iterator_move(it,-5, 0, 1);  
-  }
-  octree_iterator_move(it,0, -1, -6);
-  octree_iterator_payload(it)[0] = l5;
-  for(int i = 0; i < 6; i++){
-    octree_iterator_move(it,1, 0, 0);
-    octree_iterator_payload(it)[0] = l5;
-  }
-  for(int i = 0; i < 6; i++){
-    octree_iterator_move(it,0, 0, 1);
-    octree_iterator_payload(it)[0] = l5;
-  }
-  for(int i = 0; i < 6; i++){
-    octree_iterator_move(it,-1, 0, 0);
-    octree_iterator_payload(it)[0] = l5;
-  }
-  for(int i = 0; i < 15; i++){
-    octree_iterator_move(it,0, 0, -1);
-    octree_iterator_payload(it)[0] = l5;
+    octree_iterator_move(it,-21, 0, 1);  
   }
   
   octree_iterator_destroy(&it);
