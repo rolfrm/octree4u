@@ -14,8 +14,6 @@
 #include <iron/linmath.h>
 #include "move_request.h"
 #include "move_request.c"
-
-
 #include "octree.h"
 #include "main.h"
 #include "item_list.h"
@@ -738,7 +736,6 @@ game_entity_kind get_type(u32 id){
   ASSERT(game_ctx->count > id);
   return game_ctx->entity_type[id];
 }
-  
 
 void detect_possible_collisions(const octree_index_ctx * ctx, collision_item ** collision_stack, entity_stack_item ** entity_stack){
 
@@ -867,7 +864,6 @@ void resolve_moves(move_resolver * mv){
 	    u32 gid = ids[j];
 	    if(get_type(gid) == GAME_ENTITY_TILE)
 	      continue;
-;
 	    u32 e = game_ctx->entity_id[gid];
 	    vec3 unused;
 
@@ -884,8 +880,24 @@ void resolve_moves(move_resolver * mv){
   move_request_clear(mv->move_req);
 }
 
-u32 trace_ray(octree_index * index, vec3 p, vec3 dir){
-  p = vec3_scale(p, 2);   
+typedef struct {
+  vec3 pt;
+  u32 depth;
+  u32 item;
+}trace_ray_result;
+
+// Recursively traces a ray through the octree. it will only iterate down through the first element in index.
+// as it iterates down, it will add elements to indexes, so index should be at least big enough to
+// contain all the levels.
+// index: an array of indexes, the first being the start octree_index.
+// p: Starting location of the ray relative to index.
+// dir: the direction of the ray
+// result: where result data is put.
+// returns: true if an item was hit, false otherwise.
+bool trace_ray(octree_index * index, vec3 p, vec3 dir, trace_ray_result * result){
+  ASSERT(!octree_index_is_leaf(*index));
+  p = vec3_scale(p, 2);
+
   float stoppts[9];
 
   { // calculate stop points, which are where the dir vector
@@ -907,7 +919,7 @@ u32 trace_ray(octree_index * index, vec3 p, vec3 dir){
 	return -1;
       return 0;
     }
-    qsort(stoppts, 9, sizeof(stoppts[0]), (void *)cmpf32);
+    qsort(stoppts, array_count(stoppts), sizeof(stoppts[0]), (void *)cmpf32);
   }
 
   float offset = 0.0;
@@ -926,20 +938,38 @@ u32 trace_ray(octree_index * index, vec3 p, vec3 dir){
       u32 cellid = x + y * 2 + z * 4;
       ASSERT(cellid < 8);
       octree_index subi = octree_index_get_childi(*index, cellid);
-      u32 * pl = octree_index_get_payload(subi);
-      if(pl[0] != 0)
-	return 1;
-      u32 cell = trace_ray(index + 1, vec3_new(p.x - x, p.y - y, p.z - z), dir);
-      if(cell != 0)
-	return cell;
+      list_index pl = octree_index_payload_list(subi);
+      if(pl.ptr != 0){
+	while(pl.ptr != 0){
+	  u32 game_object = list_index_get(pl);
+	  u32 type = get_type(game_object);
+	  if(type == GAME_ENTITY_TILE){
+	    result->depth = 1;
+	    result->item = game_object;
+	    result->pt = p;
+	    return true;
+	  }
+	  pl = list_index_next(pl);
+	}
+	return false;
+      }
+      if(false == octree_index_is_leaf(subi)){
+	index[1] = subi;
+	let cell = trace_ray(&index[1], vec3_new(p2.x - x, p2.y - y, p2.z - z), dir, result);
+	if(cell){
+	  result->pt = vec3_add(vec3_scale(result->pt, 0.5), vec3_new(x * 0.25, y * 0.25, z * 0.25));
+	  result->depth += 1;
+	  return cell;
+	}
+      }
     }
-    
     offset = stoppts[i];
   }  
-  return 0;
+  return false;
 }
 
 void test_trace_ray(){
+  logd("\nTEST trace_ray\n\n");
   game_ctx = game_context_new();
   octree * oct = octree_new();
   u32 create_tile(u32 color){
@@ -949,20 +979,35 @@ void test_trace_ray(){
     return list_entity_push(game_ctx->lists, 0, id);
   }
   octree_iterator * it = octree_iterator_new(oct->first_index);
-  octree_iterator_child(it, 0, 0, 0);
-  octree_iterator_child(it, 0, 0, 0);
+  octree_iterator_child(it, 1, 1, 1);
+  octree_iterator_child(it, 1, 1, 1);
+  octree_iterator_child(it, 1, 1, 1);
   octree_iterator_payload(it)[0] = create_tile(10);
+  octree_iterator_destroy(&it);
   octree_index indexes[10];
   indexes[0] = oct->first_index;
-  u32 hit = trace_ray(indexes, vec3_new(0, 0, 0), vec3_new(1,1,1));
-  ASSERT(hit != 0);
+  trace_ray_result r;
+  {
+    bool hit = trace_ray(indexes, vec3_new(0.3, 0.3, 0.3), vec3_new(1,1,1), &r);
+    ASSERT(hit);
+  }
+  {
+    bool hit = trace_ray(indexes, vec3_new(0, 0.99, 0), vec3_new(1,0,1), &r);
+    ASSERT(hit);
+  }
+  {
+    bool hit = trace_ray(indexes, vec3_new(0.99, 0.99, 0), vec3_new(0,0,1), &r);
+    ASSERT(hit);
+  }
+  vec3_print(r.pt);logd("%i %i\n", r.depth, r.item);
   game_context_destroy(&game_ctx);
 }
 
 int main(){
   list_entity_test();
   octree_test();
-  //test_trace_ray();
+  test_trace_ray();
+  //return 0;
   game_ctx = game_context_new();
 
   u32 create_tile(u32 color){
