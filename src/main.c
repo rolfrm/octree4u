@@ -795,6 +795,15 @@ move_resolver * move_resolver_new(octree_index topnode){
   return mv;
 }
 
+void move_resolver_update_possible_collisions(move_resolver * mv){
+  item_list_clear(&mv->collision_stack);
+  item_list_clear(&mv->entity_stack);
+  void dd(const octree_index_ctx * ctx){
+    detect_possible_collisions(ctx, &mv->collision_stack, &mv->entity_stack);
+  }
+  octree_iterate(mv->topnode, 1, vec3_zero, dd); //recreate
+}
+
 void resolve_moves(move_resolver * mv){
   let it = mv->it;
   let topnode = mv->topnode;
@@ -811,16 +820,10 @@ void resolve_moves(move_resolver * mv){
     octree_iterator_iterate(it, 1, vec3_zero, update_entity_nodes);
     octree_iterator_iterate(it, 1, vec3_zero, gen_subs); //recreate
     ASSERT(item_list_count(mv->entity_stack) == 0);
-
-      item_list_clear(&mv->collision_stack);
-      item_list_clear(&mv->entity_stack);
-      void dd(const octree_index_ctx * ctx){
-	detect_possible_collisions(ctx, &mv->collision_stack, &mv->entity_stack);
-      }
-      octree_iterate(topnode, 1, vec3_zero, dd); //recreate
-      u32 collision_count = item_list_count(mv->collision_stack);
+    move_resolver_update_possible_collisions(mv);
+    u32 collision_count = item_list_count(mv->collision_stack);
       
-      void get_collision_data(collision_data_part part, vec3 * o_offset, float * o_s, octree_index * o_model, u32 * real_collider){
+    void get_collision_data(collision_data_part part, vec3 * o_offset, float * o_s, octree_index * o_model, u32 * real_collider){
 	*o_offset = part.position;
 	*o_s = part.size;
 	*o_model = (octree_index){0};
@@ -902,11 +905,11 @@ bool trace_ray(octree_index * index, vec3 p, vec3 dir, trace_ray_result * result
 
   { // calculate stop points, which are where the dir vector
     // crosses the axis lines at 0, 0.5 and 1.
-    int idx = 0;
+    u64 idx = 0;
     float * pt = stoppts;
-    for(int i = 0; i < 3; i++){
-      for(int d = 0; d <= 2; d += 1){
-	ASSERT(idx < 9);
+    for(u32 i = 0; i < 3; i++){
+      for(u32 d = 0; d <= 2; d += 1){
+	ASSERT(idx < array_count(stoppts));
 	*pt = ((float)d - p.data[i]) / dir.data[i];
 	pt += 1;
 	idx++;
@@ -914,23 +917,27 @@ bool trace_ray(octree_index * index, vec3 p, vec3 dir, trace_ray_result * result
     }
     int cmpf32(float * a, float * b){
       if(*a < *b)
-	return 1;
-      if(*a > *b)
 	return -1;
+      if(*a > *b)
+	return 1;
       return 0;
     }
     qsort(stoppts, array_count(stoppts), sizeof(stoppts[0]), (void *)cmpf32);
   }
 
   float offset = 0.0;
-
-  for(int i = 0; i < 9; i++){
+  static int depth = 0;
+  for(u32 i = 0; i < 9; i++){
     if(stoppts[i] < 0)
       continue;
+    
+    if(isfinite(offset) == false)
+      break;
     vec3 p2 = vec3_add(p, vec3_scale(dir, offset));
-    int x = floor(p2.x);
-    int y = floor(p2.y);
-    int z = floor(p2.z);
+    // nodge in the dir direction
+    int x = floor(p2.x + dir.x * 0.001);
+    int y = floor(p2.y + dir.y * 0.001);
+    int z = floor(p2.z + dir.z * 0.001);
     if(x < 0 || x >= 2 || y < 0 || y >= 2 || z < 0 || z >= 2){
       // no hit. skip this point
     }else{
@@ -977,7 +984,9 @@ bool trace_ray(octree_index * index, vec3 p, vec3 dir, trace_ray_result * result
       }
       if(false == octree_index_is_leaf(subi)){
 	index[1] = subi;
+	depth += 1;
 	let cell = trace_ray(&index[1], vec3_new(p2.x - x, p2.y - y, p2.z - z), dir, result);
+	depth -= 1;
 	if(cell){
 
 	  result->t = (result->t + offset) * 0.5;
@@ -986,7 +995,13 @@ bool trace_ray(octree_index * index, vec3 p, vec3 dir, trace_ray_result * result
 	}
       }
     }
-    offset = stoppts[i];
+    while(i < array_count(stoppts)){
+      if(stoppts[i] != offset){
+	offset = stoppts[i];
+	break;
+      }
+      i += 1;
+    }
   }  
   return false;
 }
@@ -1028,8 +1043,21 @@ void test_trace_ray(){
     logd("%i %i %f\n", r.depth, r.item, r.t);
     ASSERT(fabs(r.t - 0.875) < 0.001);
   }
-  logd("%i %i %f\n", r.depth, r.item, r.t);
 
+  {
+    
+    octree_iterator_payload(it)[0] = list_entity_pop(game_ctx->lists,  octree_iterator_payload(it)[0]);
+    octree_iterator_move(it, -2, -2, -2);
+    octree_iterator_payload(it)[0] = create_tile(10);
+    logd("\n\nTrace negative..\n");
+    bool hit = trace_ray(indexes, vec3_new(1.0, 1.0, 1.0), vec3_new(-1,-1,-1), &r);
+    ASSERT(hit);
+    logd("%i %i %f\n", r.depth, r.item, r.t);
+    ASSERT(fabs(r.t - 0.25) < 0.001);
+    
+    octree_iterator_payload(it)[0] = list_entity_pop(game_ctx->lists,  octree_iterator_payload(it)[0]);
+    octree_iterator_move(it, 2, 2, 2);
+  }
   octree * model = octree_new();
   { // insert a model as a node in the graph.
     
@@ -1064,11 +1092,20 @@ void test_trace_ray(){
     hit = trace_ray(indexes, vec3_new(0.0, 0.0, 0.0), vec3_new(1,1,1), &r);
     ASSERT(hit);
     ASSERT(fabs(r.t - 1) < 0.01);
-  }
 
-  { // TODO: test ray casting to sub entities. hitting things outside the unit cube should be avoided btw.
+    
+    // Test ray casting to sub entities. hitting things outside the unit cube should be avoided btw.
+    octree_iterator_payload(it)[0] = list_entity_pop(game_ctx->lists, octree_iterator_payload(it)[0]);
+    hit = trace_ray(indexes, vec3_new(0.0, 0.0, 0.0), vec3_new(1,1,1), &r);
+    ASSERT(hit == false);
+    
+    //game_ctx->entity_ctx->offset[e1] = vec3_new(0.5,0.5,0.5);
 
-
+    octree_iterator_move(it, -2, -2, -2);
+    octree_iterator_payload(it)[0] = list_entity_push(game_ctx->lists, 0, i1);
+    hit = trace_ray(indexes, vec3_new(1.0, 1.0, 1.0), vec3_new(-1,-1,-1), &r);
+    ASSERT(hit);
+    logd("DONE\n");
   }
   
   octree_iterator_destroy(&it);
@@ -1111,12 +1148,10 @@ int main(){
   game_ctx->entity_ctx->model[e1] = submodel->first_index;
   game_ctx->entity_ctx->offset[e1] = vec3_new(0,4,0.0);
   u32 l1 = list_entity_push(game_ctx->lists, 0, i1);
-  u32 e2;
   u32 l6 = 0;
   {
     u32 i1 = game_context_alloc(game_ctx);
     u32 e1 = entities_alloc(game_ctx->entity_ctx);
-    e2 = e1;
     logd("E2: %i/%i\n", i1, e1);
     game_ctx->entity_type[i1] = GAME_ENTITY;
     game_ctx->entity_id[i1] = e1;
@@ -1129,7 +1164,6 @@ int main(){
     {
     u32 i1 = game_context_alloc(game_ctx);
     u32 e1 = entities_alloc(game_ctx->entity_ctx);
-    e2 = e1;
     logd("E2: %i/%i\n", i1, e1);
     game_ctx->entity_type[i1] = GAME_ENTITY;
     game_ctx->entity_id[i1] = e1;
@@ -1212,16 +1246,7 @@ int main(){
   
   octree_iterator_iterate(it, 1, vec3_zero, update_entity_nodes);
   
-  item_list_clear(&mv->collision_stack);
-  item_list_clear(&mv->entity_stack);
-  void dd(const octree_index_ctx * ctx){
-    detect_possible_collisions(ctx, &mv->collision_stack, &mv->entity_stack);
-  }
-  vec3_print(game_ctx->entity_ctx->offset[e2]);
-  vec3_print(game_ctx->entity_ctx->offset[e1]); logd("\n");
-  octree_iterate(mv->topnode, 1, vec3_zero, dd); //recreate
-  //ASSERT(game_ctx->entity_ctx->offset[e1].y > 0);
-  //ASSERT(game_ctx->entity_ctx->offset[e2].y > 0);
+  move_resolver_update_possible_collisions(mv);
 
   u32 collision_count = item_list_count(mv->collision_stack);
   void get_collision_data(collision_data_part part, vec3 * o_offset, float * o_s, octree_index * o_model, u32 * real_collider){
