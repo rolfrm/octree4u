@@ -967,7 +967,7 @@ bool trace_ray(octree_index * index, vec3 p, vec3 dir, trace_ray_result * result
 	  ASSERT(type == GAME_ENTITY);
 	  u32 eid = game_ctx->entity_id[game_object];
 	  voffset = vec3_add(voffset, game_ctx->entity_ctx->offset[eid]);
-	  vec3 p3 = vec3_sub(p, voffset);
+	  vec3 p3 = vec3_sub(vec3_scale(p, 0.5), voffset);
 	  var model = game_ctx->entity_ctx->model[eid];
 	  index[1] = model;
 	  bool hit = trace_ray(index + 1, p3, dir, result);
@@ -1010,17 +1010,21 @@ void test_trace_ray(){
   logd("\nTEST trace_ray\n\n");
   game_ctx = game_context_new();
   octree * oct = octree_new();
-  u32 create_tile(u32 color){
+  u32 create_tile(u32 color, u32 * o_id){
     u32 id = game_context_alloc(game_ctx);
     game_ctx->entity_type[id] = GAME_ENTITY_TILE;
     game_ctx->entity_id[id] = color;
+    *o_id = id;
     return list_entity_push(game_ctx->lists, 0, id);
   }
+  u32 color1, id1;
+  color1 = create_tile(10, &id1);
+
   octree_iterator * it = octree_iterator_new(oct->first_index);
   octree_iterator_child(it, 1, 1, 1); // 0.5 - 1
   octree_iterator_child(it, 1, 1, 1); // 0.75 - 1
   octree_iterator_child(it, 1, 1, 1); // 0.875 - 1
-  octree_iterator_payload(it)[0] = create_tile(10);
+  octree_iterator_payload(it)[0] = color1;
   
   octree_index indexes[10];
   indexes[0] = oct->first_index;
@@ -1028,30 +1032,41 @@ void test_trace_ray(){
   {
     bool hit = trace_ray(indexes, vec3_new(0.0, 0.0, 0.0), vec3_new(1,1,1), &r);
     ASSERT(hit);
+    ASSERT(r.item == id1);
     logd("%i %i %f\n", r.depth, r.item, r.t);
     ASSERT(fabs(r.t - 0.875) < 0.001);
   }
   {
     bool hit = trace_ray(indexes, vec3_new(0, 0.999, 0), vec3_new(1,0,1), &r);
     ASSERT(hit);
+    ASSERT(r.item == id1);
     logd("%i %i %f\n", r.depth, r.item, r.t);
     ASSERT(fabs(r.t - 0.875) < 0.001);
   }
   {
     bool hit = trace_ray(indexes, vec3_new(0.999, 0.999, 0), vec3_new(0,0,1), &r);
     ASSERT(hit);
+    ASSERT(r.item == id1);
     logd("%i %i %f\n", r.depth, r.item, r.t);
     ASSERT(fabs(r.t - 0.875) < 0.001);
   }
 
   {
-    
-    octree_iterator_payload(it)[0] = list_entity_pop(game_ctx->lists,  octree_iterator_payload(it)[0]);
-    octree_iterator_move(it, -2, -2, -2);
-    octree_iterator_payload(it)[0] = create_tile(10);
-    logd("\n\nTrace negative..\n");
     bool hit = trace_ray(indexes, vec3_new(1.0, 1.0, 1.0), vec3_new(-1,-1,-1), &r);
     ASSERT(hit);
+    ASSERT(fabs(r.t - 0.0) < 0.01);
+    ASSERT(r.item == id1);
+    logd("Trace negative: ");
+    logd("%i %i %f\n", r.depth, r.item, r.t);
+    
+    octree_iterator_payload(it)[0] = 0;
+    octree_iterator_move(it, -2, -2, -2);
+    octree_iterator_payload(it)[0] = color1;
+
+    hit = trace_ray(indexes, vec3_new(1.0, 1.0, 1.0), vec3_new(-1,-1,-1), &r);
+    ASSERT(hit);
+    ASSERT(r.item == id1);
+    logd("Trace negative: ");
     logd("%i %i %f\n", r.depth, r.item, r.t);
     ASSERT(fabs(r.t - 0.25) < 0.001);
     
@@ -1062,7 +1077,8 @@ void test_trace_ray(){
   { // insert a model as a node in the graph.
     
     octree_index index = model->first_index;
-    let tile = create_tile(199);
+    u32 id2;
+    let tile = create_tile(199, &id2);
     //octree_index_get_payload(octree_index_get_childi(index, 0))[0] = tile;
     //octree_index_get_payload(octree_index_get_childi(index, 2))[0] = tile;
     //octree_index_get_payload(octree_index_get_childi(index, 1))[0] = tile;
@@ -1080,6 +1096,7 @@ void test_trace_ray(){
     trace_ray_result r;
     bool hit = trace_ray(indexes, vec3_new(0.0, 0.0, 0.0), vec3_new(1,1,1), &r);
     ASSERT(hit);
+    ASSERT(r.item == id2);
     logd("%i %i %f\n", r.depth, r.item, r.t);
     // the sub-model is split into 4, where the one in the top corner has a color.
     float ratio = 1.0 - (0.5 * 0.5 * 0.5 * 0.5 );
@@ -1094,18 +1111,22 @@ void test_trace_ray(){
     ASSERT(fabs(r.t - 1) < 0.01);
 
     
-    // Test ray casting to sub entities. hitting things outside the unit cube should be avoided btw.
+
     octree_iterator_payload(it)[0] = list_entity_pop(game_ctx->lists, octree_iterator_payload(it)[0]);
     hit = trace_ray(indexes, vec3_new(0.0, 0.0, 0.0), vec3_new(1,1,1), &r);
     ASSERT(hit == false);
     
-    //game_ctx->entity_ctx->offset[e1] = vec3_new(0.5,0.5,0.5);
+    game_ctx->entity_ctx->offset[e1] = vec3_new(0.0,0.0,0.0);
 
     octree_iterator_move(it, -2, -2, -2);
     octree_iterator_payload(it)[0] = list_entity_push(game_ctx->lists, 0, i1);
+    logd(" Trace back:\n");
     hit = trace_ray(indexes, vec3_new(1.0, 1.0, 1.0), vec3_new(-1,-1,-1), &r);
+    logd("%i %i %f\n", r.depth, r.item, r.t);
     ASSERT(hit);
+    ASSERT(r.t == 0.25);
     logd("DONE\n");
+    // Test ray casting to sub entities. hitting things outside the unit cube should be avoided btw.
   }
   
   octree_iterator_destroy(&it);
