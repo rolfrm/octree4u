@@ -887,6 +887,7 @@ typedef struct {
   float t;
   u32 depth;
   u32 item;
+  void (* on_hit)(u32 item);
 }trace_ray_result;
 
 // Recursively traces a ray through the octree. it will only iterate down through the first element in index.
@@ -950,18 +951,23 @@ bool trace_ray(octree_index * index, vec3 p, vec3 dir, trace_ray_result * result
 	  u32 game_object = list_index_get(pl);
 	  u32 type = get_type(game_object);
 	  if(type == GAME_ENTITY_TILE){
+	    
 	    result->depth = 1;
 	    result->item = game_object;
 	    result->t = offset * 0.5;
+	    if(result->on_hit != NULL)
+	      result->on_hit(game_object);
 	    return true;
 	  }
 
 	  vec3 voffset = {0};
-	  
+	  u32 sub_entity = 0;
 	  if(type == GAME_ENTITY_SUB_ENTITY){
+	    sub_entity = game_object;
 	    u32 subid = game_ctx->entity_id[game_object];
 	    voffset = game_ctx->entity_sub_ctx->offset[subid];
 	    game_object = game_ctx->entity_sub_ctx->entity[subid];
+
 	    type = GAME_ENTITY;
 	  }
 	  ASSERT(type == GAME_ENTITY);
@@ -975,6 +981,12 @@ bool trace_ray(octree_index * index, vec3 p, vec3 dir, trace_ray_result * result
 	  if(hit){
 	    result->depth += 1;
 	    result->t = (result->t + offset) * 0.5;
+	    if(result->on_hit != NULL){
+	      result->on_hit(game_object);
+	      if(sub_entity)
+		result->on_hit(sub_entity);
+	    }
+	    
 	    return true;
 	  }
 
@@ -1028,7 +1040,7 @@ void test_trace_ray(){
   
   octree_index indexes[10];
   indexes[0] = oct->first_index;
-  trace_ray_result r;
+  trace_ray_result r = {0};
   {
     bool hit = trace_ray(indexes, vec3_new(0.0, 0.0, 0.0), vec3_new(1,1,1), &r);
     ASSERT(hit);
@@ -1093,7 +1105,7 @@ void test_trace_ray(){
     game_ctx->entity_ctx->offset[e1] = vec3_new(0,0,0.0);
     octree_iterator_payload(it)[0] = list_entity_push(game_ctx->lists, 0, i1);
   
-    trace_ray_result r;
+    trace_ray_result r = {0};
     bool hit = trace_ray(indexes, vec3_new(0.0, 0.0, 0.0), vec3_new(1,1,1), &r);
     ASSERT(hit);
     ASSERT(r.item == id2);
@@ -1125,8 +1137,48 @@ void test_trace_ray(){
     logd("%i %i %f\n", r.depth, r.item, r.t);
     ASSERT(hit);
     ASSERT(r.t == 0.25);
+
+    // at this level a movement of 1 unit is 0.125, so the movement of a half should be 0.06125
+    hit = trace_ray(indexes, vec3_new(0.0, 0.75, 0.75), vec3_new(1,0,0), &r);
+    ASSERT(hit == false);
+    hit = trace_ray(indexes, vec3_new(0.0, 0.63, 0.63), vec3_new(1,0,0), &r);
+    ASSERT(hit == true);
+    // Test ray casting to sub entities. hitting things outside the unit cube should be avoided btw. 
+    game_ctx->entity_ctx->offset[e1] = vec3_new(0.25,0.25,0.25);
+    hit = trace_ray(indexes, vec3_new(0.0, 0.68, 0.68), vec3_new(1,0,0), &r);
+    ASSERT(hit == false);
+    hit = trace_ray(indexes, vec3_new(0.0, 0.69, 0.69), vec3_new(1,0,0), &r);
+    ASSERT(hit == true);
+    hit = trace_ray(indexes, vec3_new(0.0, 0.75, 0.75), vec3_new(1,0,0), &r);
+    ASSERT(hit == false);
+    octree_iterator_iterate(it, 1, vec3_zero, gen_subs); //recreate
+    hit = trace_ray(indexes, vec3_new(0.0, 0.75, 0.75), vec3_new(1,0,0), &r);
+    ASSERT(hit == true);
+    hit = trace_ray(indexes, vec3_new(0.0, 0.75, 0.75), vec3_new(1,0,0), &r);
+    ASSERT(hit == true);
+    hit = trace_ray(indexes, vec3_new(0.0, 0.88, 0.88), vec3_new(1,0,0), &r);
+    ASSERT(hit == false);
+
+    u32 hit_things[10];
+    u32 cnt = 0;
+    void on_hit(u32 thing){
+      logd("ON HIT\n", thing);
+      hit_things[cnt] = thing;
+      cnt++;
+    }
+    r.on_hit = on_hit;
+    logd("%i %i %f %i\n", r.depth, r.item, r.t, get_type(r.item));
+    
+    
+    hit = trace_ray(indexes, vec3_new(1, 1, 1), vec3_new(-1,-1,-1), &r);
+    ASSERT(hit == true);
+    ASSERT(get_type(r.item) == GAME_ENTITY_TILE);
+    ASSERT(hit_things[0] == r.item);
+    ASSERT(get_type(hit_things[1]) == GAME_ENTITY);
+    ASSERT(get_type(hit_things[2]) == GAME_ENTITY_SUB_ENTITY);
+    ASSERT(cnt == 3);
+    
     logd("DONE\n");
-    // Test ray casting to sub entities. hitting things outside the unit cube should be avoided btw.
   }
   
   octree_iterator_destroy(&it);
@@ -1137,7 +1189,7 @@ int main(){
   list_entity_test();
   octree_test();
   test_trace_ray();
-  return 0;
+  
   game_ctx = game_context_new();
 
   u32 create_tile(u32 color){
