@@ -13,7 +13,7 @@ void main(){
      float angle = 2 * M_PI / 8;	
      p += position;
      
-     vec2 vertex = vec2((p.x - p.z) * sin(angle), p.y + (p.x + p.z) * cos(angle) - 1);
+     vec2 vertex = vec2((p.x - p.z) * sin(angle), p.y + (p.x + p.z) * cos(angle));
      
      gl_Position = vec4(vertex, 0, 1);
 }

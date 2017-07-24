@@ -358,6 +358,8 @@ game_context * game_ctx;
 
 float render_zoom = 1.0;
 vec3 render_offset = {0};
+vec3 camera_position = {0};
+vec3 camera_direction = {.x = 0.7, .y = -1, .z = 0.7};
 
 void render_color(u32 color, float size, vec3 p){
   static vec3 bound_lower;
@@ -421,8 +423,8 @@ void render_color(u32 color, float size, vec3 p){
 	p.data[j] =bound_lower.data[j];	
       }
     }
-    
-    glUniform3f(glGetUniformLocation(game_ctx->prog, "position"), p.x * render_zoom + render_offset.x, p.y * render_zoom + render_offset.y, p.z * render_zoom + render_offset.z);
+    vec3 mpos = vec3_sub(p, camera_position);
+    glUniform3f(glGetUniformLocation(game_ctx->prog, "position"), mpos.x * render_zoom, mpos.y * render_zoom, mpos.z * render_zoom);
     if(bound_upper.x < 1.0){
       vec3 p2 = vec3_add(p, s);
       
@@ -1246,7 +1248,28 @@ int main(){
   }
   octree * oct = octree_new();
   octree_index idx = oct->first_index;
-  
+  {
+    octree_iterator * it = octree_iterator_new(idx);
+    octree_iterator_child(it, 0, 0, 0);
+    octree_iterator_child(it, 0, 0, 0);
+    octree_iterator_child(it, 0, 0, 0);
+    octree_iterator_child(it, 0, 0, 0);
+    octree_iterator_child(it, 0, 0, 0);
+    octree_iterator_child(it,0, 0, 0);
+    octree_iterator_child(it, 0, 0, 0);
+    octree_iterator_payload(it)[0] = l4;
+  }
+  {
+    octree_iterator * it = octree_iterator_new(idx);
+    octree_iterator_child(it, 0, 0, 0);
+    octree_iterator_child(it, 1, 1, 1);
+    octree_iterator_child(it, 1, 1, 1);
+    octree_iterator_child(it, 1, 1, 1);
+    octree_iterator_child(it, 1, 1, 1);
+    octree_iterator_child(it,1, 1, 1);
+    octree_iterator_child(it, 1, 1, 1);
+    octree_iterator_payload(it)[0] = l4;
+  }
   octree_iterator * it = octree_iterator_new(idx);
   octree_iterator_child(it, 0, 0, 0);
   octree_iterator_child(it, 1, 1, 1);
@@ -1311,10 +1334,16 @@ int main(){
       next = true;
   }
 
+  void mbfun(GLFWwindow * w, int button, int action, int mods){
+    UNUSED(w);
+    logd("%i %i %i\n", button, action, mods);
+  }
+
   glfwSetKeyCallback(win, keyfun);
   glfwSetCursorPosCallback(win, cursorMoved);
-  render_offset = vec3_new(0,-15,0);
-  render_zoom = 19;
+  glfwSetMouseButtonCallback(win, mbfun);
+  //render_offset = vec3_new(0,-15,0);
+  //render_zoom = 19;
   move_resolver * mv = move_resolver_new(oct->first_index);
   
   octree_iterator_iterate(it, 1, vec3_zero, update_entity_nodes);
@@ -1364,10 +1393,14 @@ int main(){
   logd("Count: %i\n", collision_count);
   //ASSERT(collision_count == 2);
   //return 0;
-  
+  camera_direction = vec3_normalize(vec3_new(1.0 / sqrtf(2.0),-1, 1/sqrtf(2.0)));
+  vec3_print(camera_direction);logd("\n");
+  camera_position = vec3_add(vec3_new(0,0.0,0), vec3_scale(camera_direction, -10));
+  float t = 0;
   while(glfwWindowShouldClose(win) == false){
-
-
+    render_zoom *= 1.01;
+    camera_position = vec3_add(vec3_new(0.5,0.5,0.5), vec3_scale(camera_direction, -1 * (t + 5)));
+    t += 0.1;
     int up = glfwGetKey(win, GLFW_KEY_UP);
     int down = glfwGetKey(win, GLFW_KEY_DOWN);
     int right = glfwGetKey(win, GLFW_KEY_RIGHT);
