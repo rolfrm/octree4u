@@ -10,10 +10,10 @@ float zs[6] = float[](0, 0, 1, 0, 1, 1);
 
 void main(){
      vec3 p = vec3(xs[gl_VertexID], ys[gl_VertexID], zs[gl_VertexID]) * size;
-     float angle = 2 * M_PI / 8;	
+     float ang = 0.707106781186547524400; // sin(pi/4)
      p += position;
      
-     vec2 vertex = vec2((p.x - p.z) * sin(angle), p.y + (p.x + p.z) * cos(angle));
+     vec2 vertex = vec2((p.x - p.z) * ang, p.y + (p.x + p.z) * ang);
      
      gl_Position = vec4(vertex, 0, 1);
 }

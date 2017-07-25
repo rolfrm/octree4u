@@ -360,7 +360,8 @@ float render_zoom = 1.0;
 vec3 render_offset = {0};
 vec3 camera_position = {0};
 vec3 camera_direction = {.x = 0.7, .y = -1, .z = 0.7};
-
+vec3 camera_direction_up = {.x = 0.7, .y = 1, .z = 0.7};
+vec3 camera_direction_side = {0};
 void render_color(u32 color, float size, vec3 p){
   static vec3 bound_lower;
   static vec3 bound_upper;
@@ -1066,6 +1067,14 @@ void test_trace_ray(){
   }
 
   {
+    bool hit = trace_ray(indexes, vec3_new(5, 5, 5), vec3_new(-1,-1,-1), &r);
+    ASSERT(hit);
+    ASSERT(r.item == id1);
+    logd("%i %i %f\n", r.depth, r.item, r.t);
+    ASSERT(fabs(r.t - 4) < 0.001);
+  }
+
+  {
     bool hit = trace_ray(indexes, vec3_new(1.0, 1.0, 1.0), vec3_new(-1,-1,-1), &r);
     ASSERT(hit);
     ASSERT(fabs(r.t - 0.0) < 0.01);
@@ -1186,7 +1195,13 @@ void test_trace_ray(){
   octree_iterator_destroy(&it);
   game_context_destroy(&game_ctx);
 }
-
+vec2 glfwGetNormalizedCursorPos(GLFWwindow * window){
+  double xpos, ypos;
+  glfwGetCursorPos(window, &xpos, &ypos);
+  int win_width, win_height;
+  glfwGetWindowSize(window, &win_width, &win_height);
+  return vec2_new((xpos / win_width * 2 - 1), -(ypos / win_height * 2 - 1));
+}
 int main(){
   list_entity_test();
   octree_test();
@@ -1261,7 +1276,7 @@ int main(){
   }
   {
     octree_iterator * it = octree_iterator_new(idx);
-    octree_iterator_child(it, 0, 0, 0);
+    octree_iterator_child(it, 1, 1, 1);
     octree_iterator_child(it, 1, 1, 1);
     octree_iterator_child(it, 1, 1, 1);
     octree_iterator_child(it, 1, 1, 1);
@@ -1335,8 +1350,26 @@ int main(){
   }
 
   void mbfun(GLFWwindow * w, int button, int action, int mods){
+    //      float ang = sin(pi/4);
+    //      vec2 vertex = vec2((p.x - p.z) * ang, p.y + (p.x + p.z) *      ang);
+    // in rendering this means that 
+    //float ang = sin(M_PI/4);
     UNUSED(w);
     logd("%i %i %i\n", button, action, mods);
+    vec2 cpos = glfwGetNormalizedCursorPos(w);
+    vec2_print(cpos);logd("\n");
+    vec3 pstart = vec3_add(camera_position, vec3_add(vec3_scale(camera_direction_side, cpos.x / render_zoom / 2), vec3_scale(camera_direction_up, cpos.y / render_zoom / 2)));
+    vec3_print(pstart);logd("\n");
+
+    octree_index indexes[20];
+    trace_ray_result r = {0};
+    indexes[0] = oct->first_index;
+    void hittest(u32 thing){
+      logd("hit: %i\n", thing);
+    }
+    r.on_hit = hittest;
+    bool hit = trace_ray(indexes, pstart, camera_direction, &r);
+    logd("%i %i\n", hit, r.item);
   }
 
   glfwSetKeyCallback(win, keyfun);
@@ -1393,14 +1426,20 @@ int main(){
   logd("Count: %i\n", collision_count);
   //ASSERT(collision_count == 2);
   //return 0;
-  camera_direction = vec3_normalize(vec3_new(1.0 / sqrtf(2.0),-1, 1/sqrtf(2.0)));
+  render_zoom = 10;
+  camera_direction = vec3_new(1.0 / sqrtf(2.0),-1, 1/sqrtf(2.0));
   vec3_print(camera_direction);logd("\n");
-  camera_position = vec3_add(vec3_new(0,0.0,0), vec3_scale(camera_direction, -10));
+  //camera_position = vec3_add(vec3_new(0,0.0,0), vec3_scale(camera_direction, -10));
+  camera_position = vec3_add(vec3_new(0.5,0.2,0.5), vec3_scale(camera_direction, -5));
+  camera_direction_side = vec3_mul_cross(camera_direction_up, camera_direction);
+  vec3_print(camera_position);vec3_print(camera_direction);logd("\n");vec3_print(camera_direction_up);;vec3_print(camera_direction_side);logd("\n");
   float t = 0;
   while(glfwWindowShouldClose(win) == false){
-    render_zoom *= 1.01;
-    camera_position = vec3_add(vec3_new(0.5,0.5,0.5), vec3_scale(camera_direction, -1 * (t + 5)));
+    //render_zoom *= 1.01;
     t += 0.1;
+    t = 0;
+    UNUSED(t);
+    //render_zoom = 2;
     int up = glfwGetKey(win, GLFW_KEY_UP);
     int down = glfwGetKey(win, GLFW_KEY_DOWN);
     int right = glfwGetKey(win, GLFW_KEY_RIGHT);
@@ -1434,9 +1473,8 @@ int main(){
 
     glClear(GL_COLOR_BUFFER_BIT);
     if(glfwGetMouseButton(win, 1)){
-      render_offset.x += cursorMove.x * 0.005;
-      render_offset.z -= cursorMove.x * 0.005;
-      render_offset.y -= cursorMove.y * 0.01;
+      camera_position = vec3_add(camera_position, vec3_scale(camera_direction_side, cursorMove.x * 0.005));
+      camera_position = vec3_add(camera_position, vec3_scale(camera_direction_up, cursorMove.y * 0.005));
     }
 
     octree_iterate(oct->first_index, 1, vec3_new(0, 0.0, 0), rendervoxel);
@@ -1444,7 +1482,7 @@ int main(){
     cursorMove = vec2_zero;
     glfwPollEvents();
 
-    iron_sleep(0.15);
+    iron_sleep(0.05);
     //vec3_print(game_ctx->entity_ctx->velocity[e1]);logd("\n");
       
   }
