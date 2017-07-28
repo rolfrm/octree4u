@@ -12,6 +12,7 @@
 #include <iron/time.h>
 #include <iron/utils.h>
 #include <iron/linmath.h>
+#include <iron/math.h>
 #include "move_request.h"
 #include "move_request.c"
 #include "octree.h"
@@ -891,6 +892,7 @@ typedef struct {
   u32 depth;
   u32 item;
   void (* on_hit)(u32 item);
+  vec3 collision_vector;
 }trace_ray_result;
 
 // Recursively traces a ray through the octree. it will only iterate down through the first element in index.
@@ -906,6 +908,7 @@ bool trace_ray(octree_index * index, vec3 p, vec3 dir, trace_ray_result * result
   p = vec3_scale(p, 2);
 
   float stoppts[9];
+  u8 indexes[] = {0, 1, 2, 3, 4, 5 ,6 ,7, 8};
 
   { // calculate stop points, which are where the dir vector
     // crosses the axis lines at 0, 0.5 and 1.
@@ -914,27 +917,40 @@ bool trace_ray(octree_index * index, vec3 p, vec3 dir, trace_ray_result * result
     for(u32 i = 0; i < 3; i++){
       for(u32 d = 0; d <= 2; d += 1){
 	ASSERT(idx < array_count(stoppts));
-	*pt = ((float)d - p.data[i]) / dir.data[i];
+	if(dir.data[i] == 0)
+	  *pt = f32_infinity;
+	else
+	  *pt = ((float)d - p.data[i]) / dir.data[i];
 	pt += 1;
 	idx++;
       }
     }
-    int cmpf32(float * a, float * b){
-      if(*a < *b)
+    int cmpf32(u8 * _a, u8 * _b){
+      float a = stoppts[*_a];
+      float b = stoppts[*_b];
+      if(a < b)
 	return -1;
-      if(*a > *b)
+      if(a > b)
 	return 1;
       return 0;
     }
-    qsort(stoppts, array_count(stoppts), sizeof(stoppts[0]), (void *)cmpf32);
+    qsort(indexes, array_count(indexes), sizeof(indexes[0]), (void *)cmpf32);
   }
 
-  float offset = 0.0;
+  float offset = -10.0;
   static int depth = 0;
-  for(u32 i = 0; i < 9; i++){
-    if(stoppts[i] < 0)
+  for(u32 _i = 0; _i < 9; _i++){
+    while(_i < array_count(indexes)){
+      if(stoppts[indexes[_i]] != offset){
+	offset = stoppts[indexes[_i]];
+	break;
+      }
+      _i += 1;
+    }
+    u8 i = indexes[_i];
+    if(offset < 0)
       continue;
-    
+    //ASSERT(stoppts[i] >= offset);
     if(isfinite(offset) == false)
       break;
     vec3 p2 = vec3_add(p, vec3_scale(dir, offset));
@@ -954,10 +970,10 @@ bool trace_ray(octree_index * index, vec3 p, vec3 dir, trace_ray_result * result
 	  u32 game_object = list_index_get(pl);
 	  u32 type = get_type(game_object);
 	  if(type == GAME_ENTITY_TILE){
-	    
 	    result->depth = 1;
 	    result->item = game_object;
 	    result->t = offset * 0.5;
+	    result->collision_vector.data[i / 3] = dir.data[i / 3] > 0 ? -1 : 1; // normal vector of hit surface
 	    if(result->on_hit != NULL)
 	      result->on_hit(game_object);
 	    return true;
@@ -1008,13 +1024,7 @@ bool trace_ray(octree_index * index, vec3 p, vec3 dir, trace_ray_result * result
 	}
       }
     }
-    while(i < array_count(stoppts)){
-      if(stoppts[i] != offset){
-	offset = stoppts[i];
-	break;
-      }
-      i += 1;
-    }
+    
   }  
   return false;
 }
@@ -1057,11 +1067,26 @@ void test_trace_ray(){
     ASSERT(fabs(r.t - 0.875) < 0.001);
   }
   {
+    r.collision_vector = vec3_zero;
     bool hit = trace_ray(indexes, vec3_new(0.999, 0.999, 0), vec3_new(0,0,1), &r);
     ASSERT(hit);
     ASSERT(r.item == id1);
-    logd("%i %i %f\n", r.depth, r.item, r.t);
+    vec3_print(r.collision_vector); logd("%i %i %f\n", r.depth, r.item, r.t);
     ASSERT(fabs(r.t - 0.875) < 0.001);
+
+    ASSERT(r.collision_vector.x == 0.0f);
+    ASSERT(r.collision_vector.y == 0.0f);
+    ASSERT(r.collision_vector.z == -1.0f);
+    r.collision_vector = vec3_zero;
+    hit = trace_ray(indexes, vec3_new(0.999, 0, 0.999), vec3_new(0,1,0), &r);
+    ASSERT(r.collision_vector.x == 0.0f);
+    ASSERT(r.collision_vector.y == -1.0f);
+    ASSERT(r.collision_vector.z == 0.0f);
+    r.collision_vector = vec3_zero;
+    hit = trace_ray(indexes, vec3_new(0, 0.999, 0.999), vec3_new(1,0,0), &r);
+    ASSERT(r.collision_vector.x == -1.0f);
+    ASSERT(r.collision_vector.y == 0.0f);
+    ASSERT(r.collision_vector.z == 0.0f);
   }
 
   {
@@ -1073,8 +1098,10 @@ void test_trace_ray(){
   }
 
   {
+
     bool hit = trace_ray(indexes, vec3_new(1.0, 1.0, 1.0), vec3_new(-1,-1,-1), &r);
     ASSERT(hit);
+
     ASSERT(fabs(r.t - 0.0) < 0.01);
     ASSERT(r.item == id1);
     logd("Trace negative: ");
@@ -1189,6 +1216,7 @@ void test_trace_ray(){
     logd("DONE\n");
 
     // test more than one thing in the grid.
+    // fix the commented out hit tests.
   }
   
   octree_iterator_destroy(&it);
@@ -1345,7 +1373,7 @@ int main(){
   ASSERT(glewInit() == GLEW_OK);
 
   glDebugMessageCallback(debugglcalls, NULL);
-  glClearColor(1.0, 1.0, 1.0, 1.0);
+  glClearColor(0.0, 0.0, 0.0, 0.0);
   game_ctx->prog = glCreateProgram(); 
   u32 vs = compileShaderFromFile(GL_VERTEX_SHADER, "simple_shader.vs");
   u32 fs = compileShaderFromFile(GL_FRAGMENT_SHADER, "simple_shader.fs");
@@ -1390,9 +1418,17 @@ int main(){
     }
     r.on_hit = hittest;
     bool hit = trace_ray(indexes, pstart, camera_direction, &r);
-    logd("%i %i\n", hit, r.item);
+    vec3_print(r.collision_vector);
+    vec3_print(vec3_add(pstart, vec3_scale(camera_direction, r.t)));
+    logd(" %i %i\n", hit, r.item);
   }
 
+  void scrollfun(GLFWwindow * w, double xscroll, double yscroll){
+    UNUSED(w);UNUSED(xscroll);
+    render_zoom *= 1 + yscroll * 0.1;
+    logd("yscroll: %f\n", yscroll);
+  }
+  glfwSetScrollCallback(win, scrollfun);
   glfwSetKeyCallback(win, keyfun);
   glfwSetCursorPosCallback(win, cursorMoved);
   glfwSetMouseButtonCallback(win, mbfun);
