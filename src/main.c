@@ -435,7 +435,7 @@ void render_color(u32 color, float size, vec3 p){
 	return;
     }
     glUniform3f(glGetUniformLocation(game_ctx->prog, "size"), s.x * render_zoom, s.y * render_zoom, s.z * render_zoom);
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 6);
+    glDrawArrays(GL_TRIANGLE_FAN, 0, 8);
   }
 }
     
@@ -892,7 +892,7 @@ typedef struct {
   u32 depth;
   u32 item;
   void (* on_hit)(u32 item);
-  vec3 collision_vector;
+  vec3 hit_normal;
 }trace_ray_result;
 
 // Recursively traces a ray through the octree. it will only iterate down through the first element in index.
@@ -950,7 +950,6 @@ bool trace_ray(octree_index * index, vec3 p, vec3 dir, trace_ray_result * result
     u8 i = indexes[_i];
     if(offset < 0)
       continue;
-    //ASSERT(stoppts[i] >= offset);
     if(isfinite(offset) == false)
       break;
     vec3 p2 = vec3_add(p, vec3_scale(dir, offset));
@@ -959,7 +958,7 @@ bool trace_ray(octree_index * index, vec3 p, vec3 dir, trace_ray_result * result
     int y = floor(p2.y + dir.y * 0.001);
     int z = floor(p2.z + dir.z * 0.001);
     if(x < 0 || x >= 2 || y < 0 || y >= 2 || z < 0 || z >= 2){
-      // no hit. skip this point
+      // no hit. Skip this point.
     }else{
       u32 cellid = x + y * 2 + z * 4;
       ASSERT(cellid < 8);
@@ -973,7 +972,8 @@ bool trace_ray(octree_index * index, vec3 p, vec3 dir, trace_ray_result * result
 	    result->depth = 1;
 	    result->item = game_object;
 	    result->t = offset * 0.5;
-	    result->collision_vector.data[i / 3] = dir.data[i / 3] > 0 ? -1 : 1; // normal vector of hit surface
+	    
+	    result->hit_normal.data[i / 3] = dir.data[i / 3] > 0 ? -1 : 1; // normal vector of hit surface
 	    if(result->on_hit != NULL)
 	      result->on_hit(game_object);
 	    return true;
@@ -1029,6 +1029,11 @@ bool trace_ray(octree_index * index, vec3 p, vec3 dir, trace_ray_result * result
   return false;
 }
 
+// Test:
+//   Goes through all the corner cases of trace_ray to ensure that
+//   trace_ray behaves as expected.
+//   there are still a few situations that does not get handled.
+//   - multiple items in the same voxel.
 void test_trace_ray(){
   logd("\nTEST trace_ray\n\n");
   game_ctx = game_context_new();
@@ -1067,26 +1072,26 @@ void test_trace_ray(){
     ASSERT(fabs(r.t - 0.875) < 0.001);
   }
   {
-    r.collision_vector = vec3_zero;
+    r.hit_normal = vec3_zero;
     bool hit = trace_ray(indexes, vec3_new(0.999, 0.999, 0), vec3_new(0,0,1), &r);
     ASSERT(hit);
     ASSERT(r.item == id1);
-    vec3_print(r.collision_vector); logd("%i %i %f\n", r.depth, r.item, r.t);
+    vec3_print(r.hit_normal); logd("%i %i %f\n", r.depth, r.item, r.t);
     ASSERT(fabs(r.t - 0.875) < 0.001);
 
-    ASSERT(r.collision_vector.x == 0.0f);
-    ASSERT(r.collision_vector.y == 0.0f);
-    ASSERT(r.collision_vector.z == -1.0f);
-    r.collision_vector = vec3_zero;
+    ASSERT(r.hit_normal.x == 0.0f);
+    ASSERT(r.hit_normal.y == 0.0f);
+    ASSERT(r.hit_normal.z == -1.0f);
+    r.hit_normal = vec3_zero;
     hit = trace_ray(indexes, vec3_new(0.999, 0, 0.999), vec3_new(0,1,0), &r);
-    ASSERT(r.collision_vector.x == 0.0f);
-    ASSERT(r.collision_vector.y == -1.0f);
-    ASSERT(r.collision_vector.z == 0.0f);
-    r.collision_vector = vec3_zero;
+    ASSERT(r.hit_normal.x == 0.0f);
+    ASSERT(r.hit_normal.y == -1.0f);
+    ASSERT(r.hit_normal.z == 0.0f);
+    r.hit_normal = vec3_zero;
     hit = trace_ray(indexes, vec3_new(0, 0.999, 0.999), vec3_new(1,0,0), &r);
-    ASSERT(r.collision_vector.x == -1.0f);
-    ASSERT(r.collision_vector.y == 0.0f);
-    ASSERT(r.collision_vector.z == 0.0f);
+    ASSERT(r.hit_normal.x == -1.0f);
+    ASSERT(r.hit_normal.y == 0.0f);
+    ASSERT(r.hit_normal.z == 0.0f);
   }
 
   {
@@ -1399,26 +1404,40 @@ int main(){
   }
 
   void mbfun(GLFWwindow * w, int button, int action, int mods){
-    //      float ang = sin(pi/4);
-    //      vec2 vertex = vec2((p.x - p.z) * ang, p.y + (p.x + p.z) *      ang);
+    // glsl:
+    //   float ang = sin(pi/4);
+    //   vec2 vertex = vec2((p.x - p.z) * ang, p.y + (p.x + p.z) * ang);
     // in rendering this means that 
-    //float ang = sin(M_PI/4);
+    // float ang = sin(M_PI/4);
+    // however the camera projection vectors are calculated elsewhere.
+    if(action != 1)
+      return;
     UNUSED(w);
     logd("Click: %i %i %i\n", button, action, mods);
     vec2 cpos = glfwGetNormalizedCursorPos(w);
     //vec2_print(cpos);logd("\n");
-    vec3 pstart = vec3_add(camera_position, vec3_add(vec3_scale(camera_direction_side, cpos.x / render_zoom / 2), vec3_scale(camera_direction_up, cpos.y / render_zoom / 2)));
+    var side = vec3_scale(camera_direction_side, cpos.x / render_zoom / 2);
+    var up = vec3_scale(camera_direction_up, cpos.y / render_zoom / 2);
+    vec3 pstart = vec3_add(camera_position, vec3_add(up, side));
     //vec3_print(pstart);logd("\n");
 
     octree_index indexes[20];
     trace_ray_result r = {0};
     indexes[0] = oct->first_index;
+    u32 entity = 0;
     void hittest(u32 thing){
-      logd("hit: %i\n", thing);
+      if(game_ctx->entity_type[thing] == GAME_ENTITY){
+	entity = game_ctx->entity_id[thing];
+      }
     }
+    
     r.on_hit = hittest;
     bool hit = trace_ray(indexes, pstart, camera_direction, &r);
-    vec3_print(r.collision_vector);
+    logd("GOt entity: %i - %i\n",entity, e1);
+    if(entity != 0)
+      e1 = entity;
+
+    vec3_print(r.hit_normal);
     vec3_print(vec3_add(pstart, vec3_scale(camera_direction, r.t)));
     logd(" %i %i\n", hit, r.item);
   }
@@ -1432,8 +1451,7 @@ int main(){
   glfwSetKeyCallback(win, keyfun);
   glfwSetCursorPosCallback(win, cursorMoved);
   glfwSetMouseButtonCallback(win, mbfun);
-  //render_offset = vec3_new(0,-15,0);
-  //render_zoom = 19;
+
   move_resolver * mv = move_resolver_new(oct->first_index);
   
   octree_iterator_iterate(it, 1, vec3_zero, update_entity_nodes);
@@ -1445,9 +1463,8 @@ int main(){
 	*o_offset = part.position;
 	*o_s = part.size;
 	*o_model = (octree_index){0};
-	//real_collider = part.id;
 	u32 id = part.id;
-	*real_collider = id;//game_ctx->entity_id[id];
+	*real_collider = id;
 	ASSERT(id != 0);
 	if(get_type(id) ==  GAME_ENTITY_TILE){
 	  return;
@@ -1481,15 +1498,14 @@ int main(){
   get_collision_data(mv->collision_stack[0].collider2, &o2, &s2, &m2, ids + 1);
   logd("%i %i\n", ids[0], ids[1]);
   logd("Count: %i\n", collision_count);
-  //ASSERT(collision_count == 2);
-  //return 0;
   render_zoom = 10;
   camera_direction = vec3_new(1.0 / sqrtf(2.0),-1, 1/sqrtf(2.0));
   vec3_print(camera_direction);logd("\n");
-  //camera_position = vec3_add(vec3_new(0,0.0,0), vec3_scale(camera_direction, -10));
+  
   camera_position = vec3_add(vec3_new(0.5,0.2,0.5), vec3_scale(camera_direction, -5));
   camera_direction_side = vec3_mul_cross(camera_direction_up, camera_direction);
   vec3_print(camera_position);vec3_print(camera_direction);logd("\n");vec3_print(camera_direction_up);;vec3_print(camera_direction_side);logd("\n");
+  glEnable(GL_DEPTH_TEST);
   float t = 0;
   while(glfwWindowShouldClose(win) == false){
     //render_zoom *= 1.01;
@@ -1528,7 +1544,7 @@ int main(){
     if(width > 0 && height > 0)
       glViewport(0, 0, width, height);
 
-    glClear(GL_COLOR_BUFFER_BIT);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     if(glfwGetMouseButton(win, 1)){
       camera_position = vec3_add(camera_position, vec3_scale(camera_direction_side, cursorMove.x * 0.005));
       camera_position = vec3_add(camera_position, vec3_scale(camera_direction_up, cursorMove.y * 0.005));
@@ -1540,7 +1556,5 @@ int main(){
     glfwPollEvents();
 
     iron_sleep(0.05);
-    //vec3_print(game_ctx->entity_ctx->velocity[e1]);logd("\n");
-      
   }
 }
