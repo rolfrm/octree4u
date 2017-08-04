@@ -18,8 +18,39 @@
 #include "octree.h"
 #include "main.h"
 #include "item_list.h"
-#include <valgrind/memcheck.h>
-#define MAKE_UNDEFINED(x) VALGRIND_MAKE_MEM_UNDEFINED(&(x),sizeof(x));
+#include "stb_image.h"
+
+u32 loadImage(u8 * pixels, u32 width, u32 height, u32 channels){
+  
+  GLuint tex;
+  glGenTextures(1, &tex);
+
+  glBindTexture(GL_TEXTURE_2D, tex);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  u32 intype;
+  switch(channels){
+  case 1:
+    intype = GL_RED;
+    break;
+  case 2:
+    intype = GL_RG;
+    break;
+  case 3:
+    intype = GL_RGB;
+    break;
+  case 4:
+    intype = GL_RGBA;
+    break;
+  default:
+    ERROR("Invalid number of channels %i", channels);
+  }
+  glTexImage2D(GL_TEXTURE_2D, 0, intype, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+  glGenerateMipmap(GL_TEXTURE_2D);
+  return tex;
+}
 
 u32 compileShader(int program, const char * code){
   u32 ss = glCreateShader(program);
@@ -85,6 +116,10 @@ game_context * game_context_new(){
   gctx->entity_ctx = entities_new();
   gctx->entity_sub_ctx = entity_sub_offset_new();
   gctx->lists = list_entity_new();
+  gctx->materials = tile_material_create(NULL);
+  gctx->strings = pstring_create(NULL);
+  gctx->textures = texdef_create(NULL);
+  gctx->subtextures = subtexdef_create(NULL);
   return gctx;
 }
 
@@ -411,12 +446,47 @@ void render_color(u32 color, float size, vec3 p){
   }
   
   if(type == GAME_ENTITY_TILE){
-    color = id;
     
-    float r = (color % 4) * 0.25f;
-    float g = ((color / 3) % 4) * 0.25;
-    float b = ((color / 5) % 4) * 0.25;
-    glUniform4f(glGetUniformLocation(game_ctx->prog, "color"), r, g, b, 1.0);
+    color = id;
+    ASSERT(*game_ctx->materials->count > color);
+    material_type type = game_ctx->materials->type[color];
+    u32 id = game_ctx->materials->material_id[color];
+    u32 col = id;
+    if(type == MATERIAL_TEXTURED){
+      col = 0xFFFFFFFF;
+      ASSERT(id < *game_ctx->subtextures->count);
+      texdef_index tex = game_ctx->subtextures->texture[id];
+      if(game_ctx->textures->texture[tex.index] == 0){
+	printf("Loading texture\n");
+	const u32 * path = &game_ctx->strings->key[game_ctx->textures->path[tex.index].index];
+	int w, h, channels;
+	var img = stbi_load((const char *)path, &w, &h, &channels, 4);
+	//memset(img, 0x44, w * h * channels);
+	ASSERT(img != NULL);
+	game_ctx->textures->width[tex.index] = w;
+	game_ctx->textures->height[tex.index] = h;
+	u32 texid = loadImage(img, w, h, channels);
+	game_ctx->textures->texture[tex.index] = texid;
+      }
+      u32 texture = game_ctx->textures->texture[tex.index];
+      glActiveTexture(GL_TEXTURE0);
+      glBindTexture(GL_TEXTURE_2D, texture);
+      glUniform1i(glGetUniformLocation(game_ctx->prog, "use_texture"), 1);
+      glUniform1i(glGetUniformLocation(game_ctx->prog, "tex"), 0);
+      glUniform2f(glGetUniformLocation(game_ctx->prog, "uv_offset"),
+		  game_ctx->subtextures->x[id], game_ctx->subtextures->y[id]);
+      glUniform2f(glGetUniformLocation(game_ctx->prog, "uv_size"),
+		  game_ctx->subtextures->w[id], game_ctx->subtextures->h[id]);
+      
+    }else{
+      glUniform1i(glGetUniformLocation(game_ctx->prog, "use_texture"), 0);
+    }
+    u8 * c8 = (u8 *) &col;
+    float r = c8[0];
+    float g = c8[1];
+    float b = c8[2];
+    float a = c8[3];
+    glUniform4f(glGetUniformLocation(game_ctx->prog, "color"), r / 255.0, g / 255.0, b / 255.0, a / 255.0);
     
     vec3 s = vec3_new(size, size, size);
     for(int j = 0; j < 3; j++){
@@ -1234,31 +1304,90 @@ vec2 glfwGetNormalizedCursorPos(GLFWwindow * window){
   glfwGetWindowSize(window, &win_width, &win_height);
   return vec2_new((xpos / win_width * 2 - 1), -(ypos / win_height * 2 - 1));
 }
-int main(){
+
+pstring_indexes load_string(pstring * pstring_table, const char * base){
+  u32 l = strlen(base);
+  pstring_indexes idx = pstring_alloc_sequence(pstring_table, l / sizeof(u32) + 1);
+  char * str = (char *) &pstring_table->key[idx.index];
+  sprintf(str, "%s", base);
+  return idx;
+}
+
+int main(){  
   list_entity_test();
   octree_test();
   test_trace_ray();
   
   game_ctx = game_context_new();
 
-  u32 create_tile(u32 color){
+  u32 create_tile(tile_material_index color){
     u32 id = game_context_alloc(game_ctx);
     game_ctx->entity_type[id] = GAME_ENTITY_TILE;
-    game_ctx->entity_id[id] = color;
+    game_ctx->entity_id[id] = color.index;
     return list_entity_push(game_ctx->lists, 0, id);
   }
-      
-  u32 l3 = create_tile(34);
 
-  u32 l4 = create_tile(55);
-  u32 l5 = create_tile(149);
-  u32 l2 = create_tile(17);
+  tile_material_index material_new(material_type type, u32 id){
+    var newmat = tile_material_alloc(game_ctx->materials);
+    game_ctx->materials->type[newmat.index] = type;
+    game_ctx->materials->material_id[newmat.index] = id;
+    return newmat;
+  }
+
+  texdef_index load_texture(const char * name){
+    pstring_indexes path_idx = load_string(game_ctx->strings, name);
+    texdef_index tex = texdef_alloc(game_ctx->textures);
+    game_ctx->textures->path[tex.index] = path_idx;
+    game_ctx->textures->texture[tex.index] = 0;
+    game_ctx->textures->width[tex.index] = 0;
+    game_ctx->textures->height[tex.index] = 0;
+    return tex;
+  }
+
+  subtexdef_index load_sub_texture(texdef_index tex, float x, float y, float w, float h){
+    subtexdef_index idx = subtexdef_alloc(game_ctx->subtextures);
+    game_ctx->subtextures->x[idx.index] = x;
+    game_ctx->subtextures->y[idx.index] = y;
+    game_ctx->subtextures->w[idx.index] = w;
+    game_ctx->subtextures->h[idx.index] = h;
+    game_ctx->subtextures->texture[idx.index] = tex;
+    return idx;
+  }
+  
+  var green = material_new(MATERIAL_SOLID_COLOR, 0xFF00FF00);
+  var red = material_new(MATERIAL_SOLID_COLOR, 0xFF0000FF);
+  var blue = material_new(MATERIAL_SOLID_COLOR, 0xFFFF0000);
+  var turquise = material_new(MATERIAL_SOLID_COLOR, 0xFFFFFF00);
+  var white = material_new(MATERIAL_SOLID_COLOR, 0xFFFFFFFF);
+
+  texdef_index tex1 = load_texture("atlas.png");
+  float x1 = 11;
+  float y1 = 1;
+  float x2 = 128;
+  float y2 = 201;
+  float imsize = 1024;
+
+  
+  subtexdef_index tile1 = load_sub_texture(tex1, x1 / imsize, y1 / imsize, (x2 - x1) / imsize, (y2 - y1) / imsize);
+
+  var textured1 = material_new(MATERIAL_TEXTURED, tile1.index);
+  blue = textured1;
+  red = textured1;
+  u32 l3 = create_tile(green);
+  u32 l4 = create_tile(red);
+  u32 l5 = create_tile(blue);
+  u32 l2 = create_tile(white);
+  u32 l6 = create_tile(textured1);
+
+  UNUSED(l6);
+
+  
   UNUSED(l5);
   octree * submodel = octree_new();
   {
     octree_index index = submodel->first_index;
     octree_index_get_payload(octree_index_get_childi(index, 0))[0] = l3;
-    octree_index_get_payload(octree_index_get_childi(index, 2))[0] = create_tile(199);
+    octree_index_get_payload(octree_index_get_childi(index, 2))[0] = create_tile(turquise);
     octree_index_get_payload(octree_index_get_childi(index, 1))[0] = l3;
   }
   
@@ -1270,7 +1399,6 @@ int main(){
   game_ctx->entity_ctx->model[e1] = submodel->first_index;
   game_ctx->entity_ctx->offset[e1] = vec3_new(0,4,0.0);
   u32 l1 = list_entity_push(game_ctx->lists, 0, i1);
-  u32 l6 = 0;
   {
     u32 i1 = game_context_alloc(game_ctx);
     u32 e1 = entities_alloc(game_ctx->entity_ctx);
@@ -1282,8 +1410,7 @@ int main(){
     game_ctx->entity_ctx->offset[e1] = vec3_new(0,0.0,0.0);
   }
   
-  for(int i = 2; i < 50; i += 2)
-    {
+  for(int i = 2; i < 50; i += 2){
     u32 i1 = game_context_alloc(game_ctx);
     u32 e1 = entities_alloc(game_ctx->entity_ctx);
     logd("E2: %i/%i\n", i1, e1);
@@ -1292,7 +1419,7 @@ int main(){
     game_ctx->entity_ctx->model[e1] = submodel->first_index;
     l1 = list_entity_push(game_ctx->lists, l1, i1);
     game_ctx->entity_ctx->offset[e1] = vec3_new(0,4 + i,0.0);
-  }
+    }
   octree * oct = octree_new();
   octree_index idx = oct->first_index;
   {
@@ -1325,7 +1452,6 @@ int main(){
   octree_iterator_child(it, 0, 0, 0);
   octree_iterator_child(it,1, 1, 1);
   octree_iterator_child(it, 0, 0, 0);
-  UNUSED(l6);
   octree_iterator_move(it,0, -1, 3);
   octree_iterator_payload(it)[0] = l1;
   octree_iterator_move(it,-5, -1, -8);
@@ -1334,7 +1460,7 @@ int main(){
   for(int j = 0; j < 21; j++){
     for(int i = 0; i < 21; i++){
       octree_iterator_move(it,1, 0, 0);
-      
+      //if(current_color != l2)
       octree_iterator_payload(it)[0] = current_color;
       if(current_color == l2)
 	current_color = l4;
@@ -1506,6 +1632,11 @@ int main(){
   camera_direction_side = vec3_mul_cross(camera_direction_up, camera_direction);
   vec3_print(camera_position);vec3_print(camera_direction);logd("\n");vec3_print(camera_direction_up);;vec3_print(camera_direction_side);logd("\n");
   glEnable(GL_DEPTH_TEST);
+  int w, h, channels;
+  var img = stbi_load("atlas.png", &w, &h, &channels, 4);
+  ASSERT(img != NULL);
+  u32 tex = loadImage(img, w, h, channels);
+  game_ctx->texatlas = tex;
   float t = 0;
   while(glfwWindowShouldClose(win) == false){
     //render_zoom *= 1.01;
@@ -1558,3 +1689,9 @@ int main(){
     iron_sleep(0.05);
   }
 }
+
+
+#include "pstring.c"
+#include "tile_material.c"
+#include "texdef.c"
+#include "subtexdef.c"

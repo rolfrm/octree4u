@@ -39,8 +39,21 @@ typedef struct{
   octree_index origin;
 }list_index;
 
+typedef enum{
+  MATERIAL_SOLID_COLOR,
+  MATERIAL_TEXTURED
+}material_type;
+
+#include "tile_material.h"
+#include "pstring.h"
+#include "texdef.h"
+#include "subtexdef.h"
 typedef struct{
+  pstring * strings;
+  texdef * textures;
+  subtexdef  * subtextures;
   game_entity_kind * entity_type;
+  tile_material * materials;
   u32 * entity_id;
   u32 count;
   u32 capacity;
@@ -54,6 +67,7 @@ typedef struct{
   list_entity * lists;
 
   u32 prog;
+  u32 texatlas;
 }game_context;
 
 game_context * game_context_new();

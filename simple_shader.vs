@@ -17,17 +17,21 @@ float xs[8] = float[](0,0, 0,0, 1,1, 1, 0);
 float ys[8] = float[](1,0, 0,1, 1,1, 0, 0);
 float zs[8] = float[](0,0, 1,1, 1,0, 0, 0);
 
-out vec3 wpos;
+float uvx[8] = float[](0.5,0.5,0,0,0.5,1,1,0.5);
+float uvy[8] = float[](0.3333,0,0.3333,0.6666,1,0.6666,0.3333,0);
 
+out vec3 wpos;
+out vec2 uv;
 void main(){
      vec3 p = vec3(xs[gl_VertexID], ys[gl_VertexID], zs[gl_VertexID]) * size;
+
      float ang = 0.707106781186547524400; // sin(pi/4)
      p += position;
      wpos = p;
-     vec3 vertex = vec3((p.x - p.z) * ang, p.y + (p.x + p.z) * ang, (p.y * - ang + (p.x + p.z) * ang) * 0.01);
+     vec3 vertex = vec3((p.x - p.z) * ang, p.y + (p.x + p.z) * ang, (p.y * - ang + (p.x + p.z) * ang) * 0.001);
      // a 0 -a 0
      // a 1 a 0
      // a -a a 0
-     
+     uv = vec2(0,1) + vec2(1, -1) * vec2(uvx[gl_VertexID], uvy[gl_VertexID]);
      gl_Position = vec4(vertex, 1);
 }
