@@ -1357,27 +1357,34 @@ int main(){
   var green = material_new(MATERIAL_SOLID_COLOR, 0xFF00FF00);
   var red = material_new(MATERIAL_SOLID_COLOR, 0xFF0000FF);
   var blue = material_new(MATERIAL_SOLID_COLOR, 0xFFFF0000);
-  var turquise = material_new(MATERIAL_SOLID_COLOR, 0xFFFFFF00);
+  //var turquise = material_new(MATERIAL_SOLID_COLOR, 0xFFFFFF00);
   var white = material_new(MATERIAL_SOLID_COLOR, 0xFFFFFFFF);
 
   texdef_index tex1 = load_texture("atlas.png");
-  float x1 = 11;
-  float y1 = 1;
-  float x2 = 128;
-  float y2 = 201;
+
   float imsize = 1024;
 
+  tile_material_index sub_texture(texdef_index tex, float x1, float y1, float x2, float y2){
+    subtexdef_index tile = load_sub_texture(tex, x1 / imsize, y1 / imsize, (x2 - x1) / imsize, (y2 - y1) / imsize);
+    return material_new(MATERIAL_TEXTURED, tile.index);
+  }
   
-  subtexdef_index tile1 = load_sub_texture(tex1, x1 / imsize, y1 / imsize, (x2 - x1) / imsize, (y2 - y1) / imsize);
-
-  var textured1 = material_new(MATERIAL_TEXTURED, tile1.index);
-  blue = textured1;
-  red = textured1;
+  tile_material_index grass = sub_texture(tex1, 10, 3, 128, 201);
+  //tile_material_index head = sub_texture(tex1, 109, 3, 129, 35);
+  tile_material_index head = sub_texture(tex1, 143, 13, 202, 113);
+  //tile_material_index legs= sub_texture(tex1, 134, 1, 153, 35);
+  tile_material_index legs= sub_texture(tex1, 144, 116, 203, 216);
+  UNUSED(head);
+  UNUSED(legs);
+  blue = grass;
+  red = grass;
+  
   u32 l3 = create_tile(green);
+  UNUSED(l3);
   u32 l4 = create_tile(red);
   u32 l5 = create_tile(blue);
   u32 l2 = create_tile(white);
-  u32 l6 = create_tile(textured1);
+  u32 l6 = create_tile(grass);
 
   UNUSED(l6);
 
@@ -1386,9 +1393,9 @@ int main(){
   octree * submodel = octree_new();
   {
     octree_index index = submodel->first_index;
-    octree_index_get_payload(octree_index_get_childi(index, 0))[0] = l3;
-    octree_index_get_payload(octree_index_get_childi(index, 2))[0] = create_tile(turquise);
-    octree_index_get_payload(octree_index_get_childi(index, 1))[0] = l3;
+    octree_index_get_payload(octree_index_get_childi(index, 0))[0] = create_tile(legs);
+    octree_index_get_payload(octree_index_get_childi(index, 2))[0] = create_tile(head);
+    //octree_index_get_payload(octree_index_get_childi(index, 1))[0] = l3;
   }
   
   u32 i1 = game_context_alloc(game_ctx);
