@@ -23,14 +23,18 @@ void octree_iterate_on(const octree_index_ctx * ctx){
     octree_index_ctx ctx2 = *ctx;
     float halfsize = ctx->s * 0.5f;
     ctx2.s = halfsize;
-    int order[] = {5, 1, 4, 0, 7, 3, 6, 2};
+    static const int order[] = {5, 1, 4, 0, 7, 3, 6, 2};
+    static const i8 xes[] = {0, 1, 0, 1, 0, 1, 0, 1};
+    static const i8 yes[] = {0, 0, 1, 1, 0, 0, 1, 1};
+    static const i8 zes[] = {0, 0, 0, 0, 1, 1, 1, 1};
     for(int _i = 0; _i < 8; _i++){
       int i = order[_i];
-      float dx = i %2;
-      float dy = (i / 2) % 2;
-      float dz = (i / 4) % 2;
+      vec3 p = {.x = xes[i], .y = yes[i], .z = zes[i]};
+      p.x *= halfsize;
+      p.y *= halfsize;
+      p.z *= halfsize;
       ctx2.index = octree_index_get_childi(ctx->index, i);
-      ctx2.p = vec3_add(ctx->p, vec3_scale(vec3_new(dx,dy,dz), halfsize));
+      ctx2.p = vec3_add(ctx->p, p);
       octree_iterate_recurse(&ctx2);
     }
   }

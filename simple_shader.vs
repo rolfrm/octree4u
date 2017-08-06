@@ -2,6 +2,10 @@
 
 uniform vec3 size;
 uniform vec3 position;
+
+uniform vec3 orig_size;
+uniform vec3 orig_position;
+
 #define M_PI 3.1415926535897932384626433832795
 
 /*
@@ -32,6 +36,12 @@ void main(){
      // a 0 -a 0
      // a 1 a 0
      // a -a a 0
+
+     vec3 p1 = vec3(xs[gl_VertexID], ys[gl_VertexID], zs[gl_VertexID]) * orig_size;	
+     p1 += orig_position;
+     vec3 orig_vertex = vec3((p1.x - p1.z) * ang, p1.y + (p1.x + p1.z) * ang, (p1.y * - ang + (p1.x + p1.z) * ang) * 0.001);
+
+
      uv = vec2(0,1) + vec2(1, -1) * vec2(uvx[gl_VertexID], uvy[gl_VertexID]);
-     gl_Position = vec4(vertex, 1);
+     gl_Position = vec4(orig_vertex, 1);
 }

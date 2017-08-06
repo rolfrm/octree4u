@@ -1,4 +1,4 @@
-OPT = -g3 -ggdb -O0
+OPT = -g3 -Og
 LIB_SOURCES1 = main.c octree_iterate.c octree.c item_list.c stb_image.c 
 LIB_SOURCES = $(addprefix src/, $(LIB_SOURCES1))
 CC = gcc

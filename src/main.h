@@ -48,6 +48,21 @@ typedef enum{
 #include "pstring.h"
 #include "texdef.h"
 #include "subtexdef.h"
+
+typedef struct{
+  u32 prog;
+  u32 color_loc;
+  u32 orig_position_loc;
+  u32 orig_size_loc;
+  u32 position_loc;
+  u32 size_loc;
+  u32 tex_loc;
+  u32 uv_offset_loc;
+  u32 uv_size_loc;
+  u32 use_texture_loc;
+
+}simple_shader;
+
 typedef struct{
   pstring * strings;
   texdef * textures;
@@ -66,7 +81,7 @@ typedef struct{
   entity_sub_offset * entity_sub_ctx;
   list_entity * lists;
 
-  u32 prog;
+  simple_shader prog;
   u32 texatlas;
 }game_context;
 

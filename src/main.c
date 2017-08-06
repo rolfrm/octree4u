@@ -30,7 +30,7 @@ u32 loadImage(u8 * pixels, u32 width, u32 height, u32 channels){
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  u32 intype;
+  u32 intype = 0;
   switch(channels){
   case 1:
     intype = GL_RED;
@@ -80,6 +80,30 @@ u32 compileShaderFromFile(u32 gl_prog_type, const char * filepath){
   dealloc(vcode);
   return vs;
 }
+
+simple_shader load_simple_shader(){
+  simple_shader s = {0};
+  u32 vs = compileShaderFromFile(GL_VERTEX_SHADER, "simple_shader.vs");
+  u32 fs = compileShaderFromFile(GL_FRAGMENT_SHADER, "simple_shader.fs");
+  u32 prog = glCreateProgram();
+  glAttachShader(prog, vs);
+  glAttachShader(prog, fs);
+  glLinkProgram(prog);
+  glUseProgram(prog);
+
+  s.prog = prog;
+  s.color_loc = glGetUniformLocation(prog, "color");
+  s.orig_position_loc = glGetUniformLocation(prog, "orig_position");
+  s.orig_size_loc = glGetUniformLocation(prog, "orig_size");
+  s.position_loc = glGetUniformLocation(prog, "position");
+  s.size_loc = glGetUniformLocation(prog, "size");
+  s.tex_loc = glGetUniformLocation(prog, "tex");
+  s.uv_offset_loc = glGetUniformLocation(prog, "uv_offset");
+  s.uv_size_loc = glGetUniformLocation(prog, "uv_size");
+  s.use_texture_loc = glGetUniformLocation(prog, "use_texture");
+  return s;
+}
+
 
 void debugglcalls(GLenum source,
 		  GLenum type,
@@ -409,6 +433,7 @@ void render_color(u32 color, float size, vec3 p){
   u32 type = game_ctx->entity_type[color];
   u32 id = game_ctx->entity_id[color];
   if(type == GAME_ENTITY_SUB_ENTITY){
+    return;
     vec3 add_offset = game_ctx->entity_sub_ctx->offset[id];
     id = game_ctx->entity_id[game_ctx->entity_sub_ctx->entity[id]];
     type = GAME_ENTITY;
@@ -444,7 +469,7 @@ void render_color(u32 color, float size, vec3 p){
     }
     return;
   }
-  
+  var shader = game_ctx->prog;
   if(type == GAME_ENTITY_TILE){
     
     color = id;
@@ -452,6 +477,34 @@ void render_color(u32 color, float size, vec3 p){
     material_type type = game_ctx->materials->type[color];
     u32 id = game_ctx->materials->material_id[color];
     u32 col = id;
+    
+    u8 * c8 = (u8 *) &col;
+    float r = c8[0];
+    float g = c8[1];
+    float b = c8[2];
+    float a = c8[3];
+    
+    glUniform4f(shader.color_loc, r / 255.0, g / 255.0, b / 255.0, a / 255.0);
+    vec3 _mpos = vec3_sub(p, camera_position);    
+    glUniform3f(shader.orig_position_loc, _mpos.x * render_zoom, _mpos.y * render_zoom, _mpos.z * render_zoom);
+    vec3 s = vec3_new(size, size, size);
+    glUniform3f(shader.orig_size_loc, s.x * render_zoom, s.y * render_zoom, s.z * render_zoom);
+    for(int j = 0; j < 3; j++){
+      if(p.data[j] < bound_lower.data[j]){
+	s.data[j] -= (bound_lower.data[j] - p.data[j]);
+	p.data[j] =bound_lower.data[j];	
+      }
+    }
+    vec3 mpos = vec3_sub(p, camera_position);
+    glUniform3f(shader.position_loc, mpos.x * render_zoom, mpos.y * render_zoom, mpos.z * render_zoom);
+    if(bound_upper.x < 1.0 || bound_upper.y < 1.0 || bound_upper.z < 1.0){
+      vec3 p2 = vec3_add(p, s);
+      
+      s = vec3_sub(vec3_min(p2, bound_upper), p);
+      //if(s.x <= 0 || s.y <= 0 || s.z <= 0)
+      //return;
+    }
+
     if(type == MATERIAL_TEXTURED){
       col = 0xFFFFFFFF;
       ASSERT(id < *game_ctx->subtextures->count);
@@ -467,44 +520,25 @@ void render_color(u32 color, float size, vec3 p){
 	game_ctx->textures->height[tex.index] = h;
 	u32 texid = loadImage(img, w, h, channels);
 	game_ctx->textures->texture[tex.index] = texid;
+	free(img);
       }
       u32 texture = game_ctx->textures->texture[tex.index];
       glActiveTexture(GL_TEXTURE0);
       glBindTexture(GL_TEXTURE_2D, texture);
-      glUniform1i(glGetUniformLocation(game_ctx->prog, "use_texture"), 1);
-      glUniform1i(glGetUniformLocation(game_ctx->prog, "tex"), 0);
-      glUniform2f(glGetUniformLocation(game_ctx->prog, "uv_offset"),
+      glUniform1i(shader.use_texture_loc, 1);
+      glUniform1i(shader.tex_loc, 0);
+
+      glUniform2f(shader.uv_offset_loc,
 		  game_ctx->subtextures->x[id], game_ctx->subtextures->y[id]);
-      glUniform2f(glGetUniformLocation(game_ctx->prog, "uv_size"),
-		  game_ctx->subtextures->w[id], game_ctx->subtextures->h[id]);
+      glUniform2f(shader.uv_size_loc,
+		  game_ctx->subtextures->w[id],
+		  game_ctx->subtextures->h[id]);
       
     }else{
-      glUniform1i(glGetUniformLocation(game_ctx->prog, "use_texture"), 0);
+      glUniform1i(shader.use_texture_loc, 0);
     }
-    u8 * c8 = (u8 *) &col;
-    float r = c8[0];
-    float g = c8[1];
-    float b = c8[2];
-    float a = c8[3];
-    glUniform4f(glGetUniformLocation(game_ctx->prog, "color"), r / 255.0, g / 255.0, b / 255.0, a / 255.0);
-    
-    vec3 s = vec3_new(size, size, size);
-    for(int j = 0; j < 3; j++){
-      if(p.data[j] < bound_lower.data[j]){
-	s.data[j] -= (bound_lower.data[j] - p.data[j]);
-	p.data[j] =bound_lower.data[j];	
-      }
-    }
-    vec3 mpos = vec3_sub(p, camera_position);
-    glUniform3f(glGetUniformLocation(game_ctx->prog, "position"), mpos.x * render_zoom, mpos.y * render_zoom, mpos.z * render_zoom);
-    if(bound_upper.x < 1.0){
-      vec3 p2 = vec3_add(p, s);
-      
-      s = vec3_sub(vec3_min(p2, bound_upper), p);
-      if(s.x <= 0 || s.y <= 0 || s.z <= 0)
-	return;
-    }
-    glUniform3f(glGetUniformLocation(game_ctx->prog, "size"), s.x * render_zoom, s.y * render_zoom, s.z * render_zoom);
+
+    glUniform3f(shader.size_loc, s.x * render_zoom, s.y * render_zoom, s.z * render_zoom);
     glDrawArrays(GL_TRIANGLE_FAN, 0, 8);
   }
 }
@@ -1457,6 +1491,10 @@ int main(){
   octree_iterator_child(it, 0, 0, 0);
   octree_iterator_child(it, 1, 1, 1);
   octree_iterator_child(it, 0, 0, 0);
+  octree_iterator_child(it, 1, 1, 1);
+  octree_iterator_child(it, 0, 0, 0);
+  octree_iterator_child(it, 1, 1, 1);
+  octree_iterator_child(it, 0, 0, 0);
   octree_iterator_child(it,1, 1, 1);
   octree_iterator_child(it, 0, 0, 0);
   octree_iterator_move(it,0, -1, 3);
@@ -1464,8 +1502,9 @@ int main(){
   octree_iterator_move(it,-5, -1, -8);
 
   u32 current_color = l4;
-  for(int j = 0; j < 21; j++){
-    for(int i = 0; i < 21; i++){
+  octree_iterator_move(it,-160, 0, -60);
+  for(int j = 0; j < 301; j++){
+    for(int i = 0; i < 301; i++){
       octree_iterator_move(it,1, 0, 0);
       //if(current_color != l2)
       octree_iterator_payload(it)[0] = current_color;
@@ -1474,9 +1513,9 @@ int main(){
       else
 	current_color = l2;
     }
-    octree_iterator_move(it,-21, 0, 1);  
+    octree_iterator_move(it,-301, 0, 1);  
   }
-
+  octree_iterator_move(it,30, 0, 30);
   
   octree_iterator_move(it,3,1,-5);
   octree_iterator_child(it,1,0,1);
@@ -1512,13 +1551,9 @@ int main(){
 
   glDebugMessageCallback(debugglcalls, NULL);
   glClearColor(0.0, 0.0, 0.0, 0.0);
-  game_ctx->prog = glCreateProgram(); 
-  u32 vs = compileShaderFromFile(GL_VERTEX_SHADER, "simple_shader.vs");
-  u32 fs = compileShaderFromFile(GL_FRAGMENT_SHADER, "simple_shader.fs");
-  glAttachShader(game_ctx->prog, vs);
-  glAttachShader(game_ctx->prog, fs);
-  glLinkProgram(game_ctx->prog);
-  glUseProgram(game_ctx->prog);
+
+  game_ctx->prog = load_simple_shader();
+
 
   vec2 cursorPos = vec2_zero;
   vec2 cursorMove = vec2_zero;
@@ -1687,12 +1722,15 @@ int main(){
       camera_position = vec3_add(camera_position, vec3_scale(camera_direction_side, cursorMove.x * 0.005));
       camera_position = vec3_add(camera_position, vec3_scale(camera_direction_up, cursorMove.y * 0.005));
     }
-
+    u64 ts = timestamp();
     octree_iterate(oct->first_index, 1, vec3_new(0, 0.0, 0), rendervoxel);
+    
     glfwSwapBuffers(win);
+    u64 ts2 = timestamp();
+    logd("%f s \n", ((double)(ts2 - ts) * 1e-6));
     cursorMove = vec2_zero;
     glfwPollEvents();
-
+    
     iron_sleep(0.05);
   }
 }
