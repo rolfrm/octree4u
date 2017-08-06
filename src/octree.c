@@ -9,9 +9,9 @@
 #include <iron/linmath.h>
 #include "octree.h"
 octree_index octree_index_new(octree * oct, u32 index, i8 child_index){
-  ASSERT(oct != NULL);
+  //ASSERT(oct != NULL);
   //ASSERT(index != 0);
-  ASSERT(child_index >= -1 && child_index < 8);
+  //ASSERT(child_index >= -1 && child_index < 8);
   octree_index idx = { .oct = oct, .index = index, .child_index = child_index,
 		       .global_index = index * 8 + (child_index == -1 ? 0 : child_index) };
   return idx;

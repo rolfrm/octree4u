@@ -501,8 +501,8 @@ void render_color(u32 color, float size, vec3 p){
       vec3 p2 = vec3_add(p, s);
       
       s = vec3_sub(vec3_min(p2, bound_upper), p);
-      //if(s.x <= 0 || s.y <= 0 || s.z <= 0)
-      //return;
+      if(s.x <= 0 || s.y <= 0 || s.z <= 0)
+      return;
     }
 
     if(type == MATERIAL_TEXTURED){
