@@ -41,14 +41,15 @@ typedef struct{
 
 typedef enum{
   MATERIAL_SOLID_COLOR,
-  MATERIAL_TEXTURED
+  MATERIAL_TEXTURED,
+  MATERIAL_SOLID_PALETTE
 }material_type;
 
 #include "tile_material.h"
 #include "pstring.h"
 #include "texdef.h"
 #include "subtexdef.h"
-
+#include "palette.h"
 typedef struct{
   u32 prog;
   u32 color_loc;
@@ -69,6 +70,7 @@ typedef struct{
   subtexdef  * subtextures;
   game_entity_kind * entity_type;
   tile_material * materials;
+  palette * palette;
   u32 * entity_id;
   u32 count;
   u32 capacity;

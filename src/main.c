@@ -144,6 +144,7 @@ game_context * game_context_new(){
   gctx->strings = pstring_create(NULL);
   gctx->textures = texdef_create(NULL);
   gctx->subtextures = subtexdef_create(NULL);
+  gctx->palette = palette_create(NULL);
   return gctx;
 }
 
@@ -416,6 +417,21 @@ void printError(const char * file, int line ){
 #define PRINTERR() printError(__FILE__, __LINE__);
 game_context * game_ctx;
 
+u32 blend_color32(double r, u32 a, u32 b){
+  u8 r2 = r * 255;
+  u8 * a2 = (u8 *) &a;
+  u8 * b2 = (u8 *) &b;
+  u32 aout;
+  u8 * a3 = (u8 *) &aout;
+  for(int i = 0; i < 3; i++){
+    u32 ac = a2[i] * (255 - r2);
+    u32 bc = b2[i] * r2;
+    u32 rc = ac + bc;
+    a3[i] = rc / 255;
+  }
+  return aout;
+}
+
 float render_zoom = 1.0;
 vec3 render_offset = {0};
 vec3 camera_position = {0};
@@ -477,7 +493,10 @@ void render_color(u32 color, float size, vec3 p){
     material_type type = game_ctx->materials->type[color];
     u32 id = game_ctx->materials->material_id[color];
     u32 col = id;
-    
+    if(type == MATERIAL_SOLID_PALETTE){
+      ASSERT(col < *game_ctx->palette->count);
+      col = game_ctx->palette->color[col];
+    }
     u8 * c8 = (u8 *) &col;
     float r = c8[0];
     float g = c8[1];
@@ -497,14 +516,7 @@ void render_color(u32 color, float size, vec3 p){
     }
     vec3 mpos = vec3_sub(p, camera_position);
     glUniform3f(shader.position_loc, mpos.x * render_zoom, mpos.y * render_zoom, mpos.z * render_zoom);
-    if(bound_upper.x < 1.0 || bound_upper.y < 1.0 || bound_upper.z < 1.0){
-      vec3 p2 = vec3_add(p, s);
-      
-      s = vec3_sub(vec3_min(p2, bound_upper), p);
-      if(s.x <= 0 || s.y <= 0 || s.z <= 0)
-      return;
-    }
-
+    
     if(type == MATERIAL_TEXTURED){
       col = 0xFFFFFFFF;
       ASSERT(id < *game_ctx->subtextures->count);
@@ -1347,6 +1359,24 @@ pstring_indexes load_string(pstring * pstring_table, const char * base){
   return idx;
 }
 
+void test_blend(){
+  for(double x = 0; x < 1.0; x+= 0.1){
+    ASSERT(0xFFFFFFFF == blend_color32(x, 0xFFFFFFFF, 0xFFFFFFFF));
+    union{
+      u8 abgr[4];
+      u32 color;
+    }test;
+    
+    test.color = blend_color32(x, 0xFF00FFFF, 0xFFFF00FF);
+    ASSERT(test.abgr[0] == 0xFF);
+    ASSERT(test.abgr[3] == 0xFF);
+    
+
+  }
+
+
+}
+
 int main(){  
   list_entity_test();
   octree_test();
@@ -1387,6 +1417,40 @@ int main(){
     game_ctx->subtextures->texture[idx.index] = tex;
     return idx;
   }
+
+  typedef struct{
+    palette_indexes palette;
+    tile_material_index * materials;
+    u32 * orig_colors;
+  }palette_def;
+  
+  palette_def palette_new(u32 * colors, u32 count){
+    palette_indexes idx = palette_alloc_sequence(game_ctx->palette, count);
+    memcpy(&game_ctx->palette->color[idx.index], colors, count * sizeof(colors[0]));
+
+    palette_def def;
+    def.palette = idx;
+    def.materials = alloc(count * sizeof(def.materials[0]));
+    def.orig_colors = alloc(count * sizeof(def.orig_colors[0]));
+    memcpy(def.orig_colors, colors, count * sizeof(colors[0]));
+    for(u32 i = 0; i <count; i++){
+      def.materials[i] = material_new(MATERIAL_SOLID_PALETTE, idx.index + i);;
+    }
+    
+    return def;
+  }
+
+  void palette_update(palette_def def, double step){
+    double ratio = step - floor(step);
+    u32 * color = &game_ctx->palette->color[def.palette.index];
+    let count = def.palette.count;
+    int s = (int) step;
+    for(u32 i = 0; i < count; i++){
+      u32 f1 = (s + i) % count;
+      u32 f2 = (s + i + 1) % count;
+      color[i] = blend_color32(ratio, def.orig_colors[f1],def.orig_colors[f2]);
+    }
+  }
   
   var green = material_new(MATERIAL_SOLID_COLOR, 0xFF00FF00);
   var red = material_new(MATERIAL_SOLID_COLOR, 0xFF0000FF);
@@ -1408,20 +1472,32 @@ int main(){
   tile_material_index head = sub_texture(tex1, 143, 13, 202, 113);
   //tile_material_index legs= sub_texture(tex1, 134, 1, 153, 35);
   tile_material_index legs= sub_texture(tex1, 144, 116, 203, 216);
+
+  u32 fire_palette_colors[] = {0xFF000077, 0xFF112299, 0xFF3355BB, 0xFF5588FF, 0xFF88FFFF, 0xFFFFFFFF, 0xFF88FFFF,0xFF5588FF, 0xFF3355BB,  0xFF112299, 0xFF000077};
+  //u32 fire_palette_colors[] = {0xFFFF0000, 0xFF00FF00, 0xFF0000FF};
+  palette_def fire_palette = palette_new(fire_palette_colors, array_count(fire_palette_colors));
+
+  u32 water_palette_colors[] = {0xFF770000, 0xFF002211, 0xFFBB5533, 0xFFFF8855, 0xFFFFFF88,0xFFFF8855, 0xFFBB5533,  0xFF992211, 0xFF770000};
+
+  palette_def water_palette = palette_new(water_palette_colors, array_count(water_palette_colors));
+  water_palette = fire_palette;
+  fire_palette = water_palette;
+  
   UNUSED(head);
   UNUSED(legs);
-  blue = grass;
+  blue = fire_palette.materials[0];//grass;
   red = grass;
-  
+  UNUSED(white);
   u32 l3 = create_tile(green);
   UNUSED(l3);
   u32 l4 = create_tile(red);
   u32 l5 = create_tile(blue);
-  u32 l2 = create_tile(white);
+  u32 l2 = create_tile(fire_palette.materials[0]);//white);
   u32 l6 = create_tile(grass);
-
+  u32 l8 = create_tile(fire_palette.materials[3]);//white);
+  u32 l9 = create_tile(fire_palette.materials[6]);//white);
   UNUSED(l6);
-
+  u32 grass_tile = create_tile(grass);
   
   UNUSED(l5);
   octree * submodel = octree_new();
@@ -1501,39 +1577,54 @@ int main(){
   octree_iterator_payload(it)[0] = l1;
   octree_iterator_move(it,-5, -1, -8);
 
-  u32 current_color = l4;
-  octree_iterator_move(it,-160, 0, -60);
-  for(int j = 0; j < 301; j++){
-    for(int i = 0; i < 301; i++){
-      octree_iterator_move(it,1, 0, 0);
-      //if(current_color != l2)
-      octree_iterator_payload(it)[0] = current_color;
-      if(current_color == l2)
-	current_color = l4;
-      else
-	current_color = l2;
+
+  {
+
+    const int tiles = 50;
+    octree_iterator_move(it,-tiles / 2, 0, -tiles / 2);
+    u32 types[] = {grass_tile,grass_tile,grass_tile,grass_tile};
+    int type = 0;
+    for(int j = 0; j < tiles; j++){
+      for(int i = 0; i < tiles; i++){
+	octree_iterator_move(it,1, 0, 0);
+	octree_iterator_payload(it)[0] = types[type];
+	type = (type + 1) % array_count(types);
+      }
+      octree_iterator_move(it,-tiles, 0, 1);
     }
-    octree_iterator_move(it,-301, 0, 1);  
+    //octree_iterator_move(it,tiles / 8, 0, tiles / 8);
+    
   }
-  octree_iterator_move(it,30, 0, 30);
   
-  octree_iterator_move(it,3,1,-5);
+    octree_iterator_move(it,3,1,-5);
   octree_iterator_child(it,1,0,1);
-  for(int i = 0; i < 10; i++){
-    octree_iterator_payload(it)[0] = l5;
-    octree_iterator_move(it,1,0,0);
-  }
-  for(int i = 0; i < 10; i++){
-    octree_iterator_payload(it)[0] = l5;
-    octree_iterator_move(it,0,0,-1);
-  }
-  for(int i = 0; i < 10; i++){
-    octree_iterator_payload(it)[0] = l5;
-    octree_iterator_move(it,-1,0,0);
-  }
-  for(int i = 0; i < 10; i++){
-    octree_iterator_payload(it)[0] = l5;
-    octree_iterator_move(it,0,0,1);
+  {
+    u32 fire_types[] = {l2, l8, l9};
+    int type = 0;
+    u32 get_next_type(int type){
+      u32 r = fire_types[type % array_count(fire_types)];
+      return r;
+    }
+    for(int j = 31; j > 0; j -= 2){
+      type += 1;
+      for(int i = 0; i < j; i++){
+	octree_iterator_payload(it)[0] = get_next_type(j);
+	octree_iterator_move(it,1,0,0);
+      }
+      for(int i = 0; i < j; i++){
+	octree_iterator_payload(it)[0] = get_next_type(j);
+	octree_iterator_move(it,0,0,-1);
+      }
+      for(int i = 0; i < j; i++){
+	octree_iterator_payload(it)[0] = get_next_type(j);
+	octree_iterator_move(it,-1,0,0);
+      }
+      for(int i = 0; i < j; i++){
+	octree_iterator_payload(it)[0] = get_next_type(j);
+	octree_iterator_move(it,0,0,1);
+      }
+      octree_iterator_move(it, 1,1,-1);
+    }
   }
 
   octree_iterator_child(it,0,0,0);
@@ -1666,11 +1757,11 @@ int main(){
   get_collision_data(mv->collision_stack[0].collider2, &o2, &s2, &m2, ids + 1);
   logd("%i %i\n", ids[0], ids[1]);
   logd("Count: %i\n", collision_count);
-  render_zoom = 10;
+  render_zoom = 90;
   camera_direction = vec3_new(1.0 / sqrtf(2.0),-1, 1/sqrtf(2.0));
   vec3_print(camera_direction);logd("\n");
   
-  camera_position = vec3_add(vec3_new(0.5,0.2,0.5), vec3_scale(camera_direction, -5));
+  camera_position = vec3_add(vec3_new(0.48,0.1,0.5), vec3_scale(camera_direction, -5));
   camera_direction_side = vec3_mul_cross(camera_direction_up, camera_direction);
   vec3_print(camera_position);vec3_print(camera_direction);logd("\n");vec3_print(camera_direction_up);;vec3_print(camera_direction_side);logd("\n");
   glEnable(GL_DEPTH_TEST);
@@ -1683,7 +1774,7 @@ int main(){
   while(glfwWindowShouldClose(win) == false){
     //render_zoom *= 1.01;
     t += 0.1;
-    t = 0;
+    //t = 0;
     UNUSED(t);
     //render_zoom = 2;
     int up = glfwGetKey(win, GLFW_KEY_UP);
@@ -1727,8 +1818,10 @@ int main(){
     
     glfwSwapBuffers(win);
     u64 ts2 = timestamp();
-    logd("%f s \n", ((double)(ts2 - ts) * 1e-6));
+    UNUSED(ts);UNUSED(ts2);
+    //logd("%f s \n", ((double)(ts2 - ts) * 1e-6));
     cursorMove = vec2_zero;
+    palette_update(fire_palette, t * 3);//floor(t * 3));
     glfwPollEvents();
     
     iron_sleep(0.05);
@@ -1740,3 +1833,4 @@ int main(){
 #include "tile_material.c"
 #include "texdef.c"
 #include "subtexdef.c"
+#include "palette.c"
