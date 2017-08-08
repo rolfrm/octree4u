@@ -17,28 +17,25 @@ void octree_iterate_recurse(const octree_index_ctx * ctx){
 bool octree_index_is_leaf(octree_index index){
   return index.child_index != -1 && index.oct->type[index.global_index] != OCTREE_NODE;
 }
+static const int order[] = {5, 1, 4, 0, 7, 3, 6, 2};
+static const float xes[] = {0, 1, 0, 1, 0, 1, 0, 1};
+static const float yes[] = {0, 0, 1, 1, 0, 0, 1, 1};
+static const float zes[] = {0, 0, 0, 0, 1, 1, 1, 1};
 
 void octree_iterate_on(const octree_index_ctx * ctx){
   if(ctx->can_iterate){
     octree_index_ctx ctx2 = *ctx;
     float halfsize = ctx->s * 0.5f;
     ctx2.s = halfsize;
-    static const int order[] = {5, 1, 4, 0, 7, 3, 6, 2};
-    static const i8 xes[] = {0, 1, 0, 1, 0, 1, 0, 1};
-    static const i8 yes[] = {0, 0, 1, 1, 0, 0, 1, 1};
-    static const i8 zes[] = {0, 0, 0, 0, 1, 1, 1, 1};
     for(int _i = 0; _i < 8; _i++){
       int i = order[_i];
-      vec3 p = {.x = xes[i], .y = yes[i], .z = zes[i]};
-      p.x *= halfsize;
-      p.y *= halfsize;
-      p.z *= halfsize;
-      ctx2.index = octree_index_get_childi(ctx->index, i);
-      ctx2.p.x = ctx->p.x + p.x;
-      ctx2.p.y = ctx->p.y + p.y;
-      ctx2.p.z = ctx->p.z + p.z;
-      
+      ctx2.p.x = ctx->p.x + xes[i] * halfsize;
+      ctx2.p.y = ctx->p.y + yes[i] * halfsize;
+      ctx2.p.z = ctx->p.z + zes[i] * halfsize;
+      ctx2.index.child_index = i;
+      ctx2.index.global_index += i;
       octree_iterate_recurse(&ctx2);
+      ctx2.index.global_index -= i;
     }
   }
 }
@@ -58,13 +55,14 @@ struct _octree_iterator{
 };
 
 void octree_iterator_push(octree_iterator * it, octree_index index, u8 childidx){
-  if(it->capacity == it->count){
+  if(__builtin_expect(it->capacity == it->count, 0)){
     it->capacity = MAX(it->capacity * 2, 8);
     it->indexstack = ralloc(it->indexstack, sizeof(it->indexstack[0]) * it->capacity);
     it->childidx = ralloc(it->childidx, sizeof(it->childidx[0]) * it->capacity);
   }
   it->childidx[it->count] = childidx;
-  it->indexstack[it->count++] = index;
+  it->indexstack[it->count] = index;
+  it->count += 1;
 }
 
 octree_iterator * octree_iterator_clone(const octree_iterator * it){
@@ -182,39 +180,36 @@ bool octree_iterator_try_move(octree_iterator * it, int rx, int ry, int rz){
   }
 }
 
+
 void octree_iterator_iterate(octree_iterator * it, float size, vec3 p,
 			     void (* f)(const octree_iterator * i, float s, vec3 p)){
   
   void recurse(octree_index index, float size, vec3 p){
-    
     if(index.child_index != -1){
       if(index.oct->type[index.global_index]== OCTREE_NODE){
-	recurse(octree_index_expand(index), size, p);
+	index = octree_index_expand(index);
+      }else{
+	f(it, size, p);
 	return;
       }
-      f(it, size, p);    
-    }else{
-      static const i8 xes[] = {0, 1, 0, 1, 0, 1, 0, 1};
-      static const i8 yes[] = {0, 0, 1, 1, 0, 0, 1, 1};
-      static const i8 zes[] = {0, 0, 0, 0, 1, 1, 1, 1};
-      static const int order[] = {5, 4, 1, 0, 7, 6, 3, 2};
-      float halfsize = size * 0.5f;
-      for(int _i = 0; _i < 8; _i++){
-	int i = order[_i];
-	vec3 p2 = {.x = xes[i], .y = yes[i], .z = zes[i]};
-	p2.x *= halfsize;
-	p2.y *= halfsize;
-	p2.z *= halfsize;
-        p2.x += p.x;
-	p2.y += p.y;
-	p2.z += p.z;
-	octree_index index2 = octree_index_get_childi(index, i);
-	octree_iterator_push(it, index2, i);
-	recurse(index2, halfsize, p2);
-	octree_iterator_parent(it);
-      }
-      f(it, size, p);
     }
+
+    float halfsize = size * 0.5f;
+    for(int _i = 0; _i < 8; _i++){
+      int i = order[_i];
+      vec3 p2;
+      p2.x = xes[i] * halfsize + p.x;
+      p2.y = yes[i] * halfsize + p.y;
+      p2.z = zes[i] * halfsize + p.z;
+      //inlined: octree_index_get_childi
+      index.child_index = i; 
+      index.global_index += i;
+      octree_iterator_push(it, index, i);
+      recurse(index, halfsize, p2);
+      it->count -= 1; //octree_iterator_parent(it);
+      index.global_index -= i;
+    }
+    f(it, size, p); 
   }
   recurse(it->indexstack[it->count - 1], size, p);
 

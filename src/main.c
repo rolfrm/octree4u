@@ -1480,8 +1480,6 @@ int main(){
   u32 water_palette_colors[] = {0xFF770000, 0xFF002211, 0xFFBB5533, 0xFFFF8855, 0xFFFFFF88,0xFFFF8855, 0xFFBB5533,  0xFF992211, 0xFF770000};
 
   palette_def water_palette = palette_new(water_palette_colors, array_count(water_palette_colors));
-  water_palette = fire_palette;
-  fire_palette = water_palette;
   
   UNUSED(head);
   UNUSED(legs);
@@ -1496,15 +1494,20 @@ int main(){
   u32 l6 = create_tile(grass);
   u32 l8 = create_tile(fire_palette.materials[3]);//white);
   u32 l9 = create_tile(fire_palette.materials[6]);//white);
+  u32 water_tile1  = create_tile(water_palette.materials[0]);
+  u32 water_tile2  = create_tile(water_palette.materials[5]);
+  u32 water_tile3  = create_tile(water_palette.materials[8]);
+
+  
   UNUSED(l6);
   u32 grass_tile = create_tile(grass);
-  
+  UNUSED(grass_tile);
   UNUSED(l5);
   octree * submodel = octree_new();
   {
     octree_index index = submodel->first_index;
-    octree_index_get_payload(octree_index_get_childi(index, 0))[0] = create_tile(legs);
-    octree_index_get_payload(octree_index_get_childi(index, 2))[0] = create_tile(head);
+    octree_index_get_payload(octree_index_get_childi(index, 0))[0] = water_tile1;
+    octree_index_get_payload(octree_index_get_childi(index, 2))[0] = water_tile2;
     //octree_index_get_payload(octree_index_get_childi(index, 1))[0] = l3;
   }
   
@@ -1577,12 +1580,11 @@ int main(){
   octree_iterator_payload(it)[0] = l1;
   octree_iterator_move(it,-5, -1, -8);
 
-
   {
 
     const int tiles = 50;
     octree_iterator_move(it,-tiles / 2, 0, -tiles / 2);
-    u32 types[] = {grass_tile,grass_tile,grass_tile,grass_tile};
+    u32 types[] = {water_tile1,water_tile2, water_tile3};
     int type = 0;
     for(int j = 0; j < tiles; j++){
       for(int i = 0; i < tiles; i++){
@@ -1772,6 +1774,7 @@ int main(){
   game_ctx->texatlas = tex;
   float t = 0;
   while(glfwWindowShouldClose(win) == false){
+    u64 ts = timestamp();
     //render_zoom *= 1.01;
     t += 0.1;
     //t = 0;
@@ -1813,17 +1816,19 @@ int main(){
       camera_position = vec3_add(camera_position, vec3_scale(camera_direction_side, cursorMove.x * 0.005));
       camera_position = vec3_add(camera_position, vec3_scale(camera_direction_up, cursorMove.y * 0.005));
     }
-    u64 ts = timestamp();
+
+    //continue;
     octree_iterate(oct->first_index, 1, vec3_new(0, 0.0, 0), rendervoxel);
     
     glfwSwapBuffers(win);
-    u64 ts2 = timestamp();
-    UNUSED(ts);UNUSED(ts2);
-    //logd("%f s \n", ((double)(ts2 - ts) * 1e-6));
+
     cursorMove = vec2_zero;
     palette_update(fire_palette, t * 3);//floor(t * 3));
+    palette_update(water_palette, t * 3);
     glfwPollEvents();
-    
+    u64 ts2 = timestamp();
+    UNUSED(ts);UNUSED(ts2);
+    //logd("%f s \n", ((double)(ts2 - ts) * 1e-6));    
     iron_sleep(0.05);
   }
 }
