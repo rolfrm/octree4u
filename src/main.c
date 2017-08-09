@@ -1524,6 +1524,12 @@ int main(){
 
   palette_def gray_palette = palette_new(gray_palette_colors, NULL, array_count(gray_palette_colors));
 
+  u32 light_gray_palette_colors[] = {0xFF333333,0xFF333333,0xFF333333,0xFF333333,0xFF333333,0xFF333333, 0xFFFFFFFF};
+  u8 light_gray_palette_glow[] = {0, 0, 0,0,0,0, 255};  
+  palette_def light_gray_palette = palette_new(light_gray_palette_colors, light_gray_palette_glow, array_count(light_gray_palette_colors));
+
+  u32 deep_water_palette_colors[] = {0xFF440505, 0xFF490505, 0xFF551111, 0xFF490505, 0xFF440505};
+  palette_def deep_water_palette = palette_new(deep_water_palette_colors, NULL, array_count(deep_water_palette_colors));  
   
   UNUSED(head);
   UNUSED(legs);
@@ -1543,7 +1549,16 @@ int main(){
   u32 water_tile3  = create_tile(gray_palette.materials[8]);
   
   u32 xwater_tile1  = create_tile(water_palette.materials[0]);
-  u32 xwater_tile2  = create_tile(water_palette.materials[5]);
+  u32 xwater_tile2  = create_tile(water_palette.materials[4]);
+
+  u32 light_gray_tile1  = create_tile(light_gray_palette.materials[0]);
+  u32 light_gray_tile2  = create_tile(light_gray_palette.materials[4]);
+
+  u32 deep_water_tiles[array_count(deep_water_palette_colors)];
+  for(u32 i = 0; i < array_count(deep_water_palette_colors); i++){
+    deep_water_tiles[i] = create_tile(deep_water_palette.materials[i]);
+  }
+  
   
   UNUSED(l6);
   u32 grass_tile = create_tile(grass);
@@ -1576,76 +1591,50 @@ int main(){
     game_ctx->entity_ctx->offset[e1] = vec3_new(0,0.0,0.0);
   }
   
-  for(int i = 2; i < 50; i += 2){
-    u32 i1 = game_context_alloc(game_ctx);
-    u32 e1 = entities_alloc(game_ctx->entity_ctx);
-    logd("E2: %i/%i\n", i1, e1);
-    game_ctx->entity_type[i1] = GAME_ENTITY;
-    game_ctx->entity_id[i1] = e1;
-    game_ctx->entity_ctx->model[e1] = submodel->first_index;
-    l1 = list_entity_push(game_ctx->lists, l1, i1);
-    game_ctx->entity_ctx->offset[e1] = vec3_new(0,4 + i,0.0);
-    }
+
   octree * oct = octree_new();
   octree_index idx = oct->first_index;
-  {
-    octree_iterator * it = octree_iterator_new(idx);
-    octree_iterator_child(it, 0, 0, 0);
-    octree_iterator_child(it, 0, 0, 0);
-    octree_iterator_child(it, 0, 0, 0);
-    octree_iterator_child(it, 0, 0, 0);
-    octree_iterator_child(it, 0, 0, 0);
-    octree_iterator_child(it,0, 0, 0);
-    octree_iterator_child(it, 0, 0, 0);
-    octree_iterator_payload(it)[0] = l4;
-  }
-  {
-    octree_iterator * it = octree_iterator_new(idx);
-    octree_iterator_child(it, 1, 1, 1);
-    octree_iterator_child(it, 1, 1, 1);
-    octree_iterator_child(it, 1, 1, 1);
-    octree_iterator_child(it, 1, 1, 1);
-    octree_iterator_child(it, 1, 1, 1);
-    octree_iterator_child(it,1, 1, 1);
-    octree_iterator_child(it, 1, 1, 1);
-    octree_iterator_payload(it)[0] = l4;
-  }
+
   octree_iterator * it = octree_iterator_new(idx);
-  octree_iterator_child(it, 0, 0, 0);
-  octree_iterator_child(it, 1, 1, 1);
-  octree_iterator_child(it, 0, 0, 0);
-  octree_iterator_child(it, 1, 1, 1);
-  octree_iterator_child(it, 0, 0, 0);
-  octree_iterator_child(it, 1, 1, 1);
-  octree_iterator_child(it, 0, 0, 0);
-  octree_iterator_child(it, 1, 1, 1);
-  octree_iterator_child(it, 0, 0, 0);
-  octree_iterator_child(it,1, 1, 1);
-  octree_iterator_child(it, 0, 0, 0);
+  octree_iterator_child(it, 0, 0, 0); //   2
+  octree_iterator_child(it, 1, 1, 1); //   4
+  octree_iterator_child(it, 0, 0, 0); //   8
+  octree_iterator_child(it, 1, 1, 1); //  16
+  octree_iterator_child(it, 0, 0, 0); //  32
+  octree_iterator_child(it, 1, 1, 1); //  64
+  octree_iterator_child(it, 0, 0, 0); // 128
+  octree_iterator_child(it, 1, 1, 1); // 256
+  octree_iterator_child(it, 0, 0, 0); // 512
+  octree_iterator_child(it,1, 1, 1);  //1024
+  octree_iterator_child(it, 0, 0, 0); //2048
   octree_iterator_move(it,0, -1, 3);
   octree_iterator_payload(it)[0] = l1;
-  octree_iterator_move(it,-5, -1, -8);
-
+  octree_iterator_move(it,0, -1, -4);
+  UNUSED(l4);
   {
 
-    const int tiles = 50;
+    const int tiles = 4;
     octree_iterator_move(it,-tiles / 2, 0, -tiles / 2);
-    u32 types[] = {water_tile1,water_tile2, water_tile3};
+    u32 types[] = {water_tile1,water_tile2, water_tile3, light_gray_tile2 };
     int type = 0;
-    for(int j = 0; j < tiles; j++){
+    for(int j = 0; j < tiles * 10; j++){
       for(int i = 0; i < tiles; i++){
 	octree_iterator_move(it,1, 0, 0);
+	if(types[type] == light_gray_tile1 || types[type] == light_gray_tile2){
+	  octree_iterator_move(it,0, 1, 0);
+	  octree_iterator_payload(it)[0] = types[type];
+	  octree_iterator_move(it,0, -1, 0);
+	}
 	octree_iterator_payload(it)[0] = types[type];
+	
 	type = (type + 1) % array_count(types);
       }
       octree_iterator_move(it,-tiles, 0, 1);
-    }
-    //octree_iterator_move(it,tiles / 8, 0, tiles / 8);
-    
+    }    
   }
   
-    octree_iterator_move(it,3,1,-5);
-  octree_iterator_child(it,1,0,1);
+  octree_iterator_move(it,-7,1,15);
+  octree_iterator_child(it,0,0,0);
   {
     u32 fire_types[] = {l2, l8, l9};
     int type = 0;
@@ -1675,7 +1664,18 @@ int main(){
     }
   }
 
-  octree_iterator_child(it,0,0,0);
+  octree_iterator_move(it,-40,-19,0);
+  for(int j = -50; j < 50; j++){
+      for(int i = -50; i < 50; i++){
+	float phase = ((float) j + i / 3) * 0.5;
+	//float sphasef = //(sin(phase) + 1.0) * 0.5;
+	int sphasei = ((int)phase) % array_count(deep_water_palette_colors); //(int) (sphasef * array_count(deep_water_palette_colors));
+	octree_iterator_payload(it)[0] = deep_water_tiles[sphasei];
+
+	octree_iterator_move(it,1,0,0);
+      }
+      octree_iterator_move(it,-100, 0, -1);
+    }
   
   octree_iterator_destroy(&it);
   
@@ -1949,8 +1949,10 @@ int main(){
     u64 ts2 = timestamp();
     UNUSED(ts);UNUSED(ts2);
     //logd("%f s \n", ((double)(ts2 - ts) * 1e-6));    
-    palette_update(fire_palette, t * 3);//floor(t * 3));
+    palette_update(fire_palette, t * 1);//floor(t * 3));
     palette_update(water_palette, t * 1);
+    palette_update(light_gray_palette, t);
+    palette_update(deep_water_palette, t * 0.3);
     glfwPollEvents();
 
     //iron_sleep(0.03);
