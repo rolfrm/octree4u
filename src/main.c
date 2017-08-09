@@ -1712,6 +1712,34 @@ int main(){
     UNUSED(a);
   }
 
+  vec3 get_position_of_entity(u32 entity){
+    bool found = false;
+    vec3 p = vec3_zero;
+    void lookup(const octree_index_ctx * ctx){
+      if(found) return;
+
+      const octree_index index = ctx->index;
+      list_index lst = octree_index_payload_list(index);
+      for(;lst.ptr != 0; lst = list_index_next(lst)){
+	if(list_index_get(lst) == entity){
+	  found = true;
+	  p = ctx->p;
+	  return;
+	}
+      }
+      octree_iterate_on(ctx);
+    }
+    octree_iterate(oct->first_index, 1, vec3_new(0, 0.0, 0), lookup);
+    return p;
+  }
+
+  void center_on_thing(u32 thing){
+    vec3 pos = get_position_of_entity(thing);
+    vec3 newcam = vec3_sub(pos, vec3_scale(camera_direction, 0.5));
+    camera_position = newcam;
+
+  }
+  
   void mbfun(GLFWwindow * w, int button, int action, int mods){
     // glsl:
     //   float ang = sin(pi/4);
@@ -1734,7 +1762,9 @@ int main(){
     trace_ray_result r = {0};
     indexes[0] = oct->first_index;
     u32 entity = 0;
+    u32 hitthing = 0;
     void hittest(u32 thing){
+      hitthing = thing;
       if(game_ctx->entity_type[thing] == GAME_ENTITY){
 	entity = game_ctx->entity_id[thing];
       }
@@ -1743,8 +1773,10 @@ int main(){
     r.on_hit = hittest;
     bool hit = trace_ray(indexes, pstart, camera_direction, &r);
     logd("GOt entity: %i - %i\n",entity, e1);
-    if(entity != 0)
+    if(entity != 0){
       e1 = entity;
+      center_on_thing(hitthing);
+    }
 
     vec3_print(r.hit_normal);
     vec3_print(vec3_add(pstart, vec3_scale(camera_direction, r.t)));
@@ -1834,7 +1866,7 @@ int main(){
       
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
   }  
-
+  center_on_thing(i1);
   float t = 0;
   f128 current_time = timestampf();
   while(glfwWindowShouldClose(win) == false){
