@@ -9,10 +9,12 @@ typedef struct _palette{
   const size_t column_count;
   icy_mem * free_indexes;
   icy_mem * header;
-  const size_t column_sizes[1];
+  const size_t column_sizes[2];
   
   u32 * color;
+  u8 * glow;
   icy_mem * color_area;
+  icy_mem * glow_area;
 }palette;
 
 // a vector index.

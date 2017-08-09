@@ -5,7 +5,7 @@ uniform sampler2D tex;
 uniform vec2 uv_offset;
 uniform vec2 uv_size;
 out vec4 fragcolor;
-in vec3 wpos;
+
 in vec2 uv;
 void main(){
    //float d = gl_FragCoord.z;

@@ -8,17 +8,17 @@
 #endif
 
 palette * palette_create(const char * optional_name){
-  static const char * const column_names[] = {(char *)"color"};
-  static const char * const column_types[] = {"u32"};
+  static const char * const column_names[] = {(char *)"color", (char *)"glow"};
+  static const char * const column_types[] = {"u32", "u8"};
 
   palette * instance = calloc(sizeof(palette), 1);
-  unsigned int sizes[] = {sizeof(u32)};
+  unsigned int sizes[] = {sizeof(u32), sizeof(u8)};
   
   instance->column_names = (char **)column_names;
   instance->column_types = (char **)column_types;
   
-  ((size_t *)&instance->column_count)[0] = 1;
-  for(unsigned int i = 0; i < 1; i++)
+  ((size_t *)&instance->column_count)[0] = 2;
+  for(unsigned int i = 0; i < 2; i++)
     ((size_t *)instance->column_sizes)[i] = sizes[i];
 
   icy_vector_abs_init((icy_vector_abs * )instance, optional_name);

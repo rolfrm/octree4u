@@ -81,16 +81,20 @@ u32 compileShaderFromFile(u32 gl_prog_type, const char * filepath){
   return vs;
 }
 
-simple_shader load_simple_shader(){
-  simple_shader s = {0};
-  u32 vs = compileShaderFromFile(GL_VERTEX_SHADER, "simple_shader.vs");
-  u32 fs = compileShaderFromFile(GL_FRAGMENT_SHADER, "simple_shader.fs");
+u32 createShaderFromFiles(const char * vs_path, const char * fs_path){
+  u32 vs = compileShaderFromFile(GL_VERTEX_SHADER, vs_path);
+  u32 fs = compileShaderFromFile(GL_FRAGMENT_SHADER, fs_path);
   u32 prog = glCreateProgram();
   glAttachShader(prog, vs);
   glAttachShader(prog, fs);
   glLinkProgram(prog);
-  glUseProgram(prog);
+  return prog;
+}
 
+simple_shader load_simple_shader(){
+  simple_shader s = {0};
+  
+  var prog = createShaderFromFiles("simple_shader.vs", "simple_shader.fs");
   s.prog = prog;
   s.color_loc = glGetUniformLocation(prog, "color");
   s.orig_position_loc = glGetUniformLocation(prog, "orig_position");
@@ -432,6 +436,22 @@ u32 blend_color32(double r, u32 a, u32 b){
   return aout;
 }
 
+u8 blend_color8(double r, u8 a, u8 b){
+  u8 r2 = r * 255;
+  u8 * a2 = (u8 *) &a;
+  u8 * b2 = (u8 *) &b;
+  u8 aout;
+  u8 * a3 = (u8 *) &aout;
+  for(int i = 0; i < 1; i++){
+    u32 ac = a2[i] * (255 - r2);
+    u32 bc = b2[i] * r2;
+    u32 rc = ac + bc;
+    a3[i] = rc / 255;
+  }
+  return aout;
+}
+
+
 float render_zoom = 1.0;
 vec3 render_offset = {0};
 vec3 camera_position = {0};
@@ -493,8 +513,10 @@ void render_color(u32 color, float size, vec3 p){
     material_type type = game_ctx->materials->type[color];
     u32 id = game_ctx->materials->material_id[color];
     u32 col = id;
+    u8 glow = 0;
     if(type == MATERIAL_SOLID_PALETTE){
       ASSERT(col < *game_ctx->palette->count);
+      glow = game_ctx->palette->glow[col];
       col = game_ctx->palette->color[col];
     }
     u8 * c8 = (u8 *) &col;
@@ -552,6 +574,20 @@ void render_color(u32 color, float size, vec3 p){
 
     glUniform3f(shader.size_loc, s.x * render_zoom, s.y * render_zoom, s.z * render_zoom);
     glDrawArrays(GL_TRIANGLE_FAN, 0, 8);
+    { // draw glow.
+
+      col = blend_color32(((double)glow) / 255.0, 0, col);
+      //if(glow > 0)
+      float r = c8[0];
+      float g = c8[1];
+      float b = c8[2];
+      a = glow;
+      
+      glUniform4f(shader.color_loc, r / 255.0, g / 255.0, b / 255.0, a / 255.0);
+      glBindFramebuffer(GL_FRAMEBUFFER, game_ctx->glow_fb);
+      glDrawArrays(GL_TRIANGLE_FAN, 0, 8);
+      glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
   }
 }
     
@@ -1422,9 +1458,10 @@ int main(){
     palette_indexes palette;
     tile_material_index * materials;
     u32 * orig_colors;
+    u8 * orig_glow;
   }palette_def;
   
-  palette_def palette_new(u32 * colors, u32 count){
+  palette_def palette_new(u32 * colors, u8 * glow, u32 count){
     palette_indexes idx = palette_alloc_sequence(game_ctx->palette, count);
     memcpy(&game_ctx->palette->color[idx.index], colors, count * sizeof(colors[0]));
 
@@ -1432,9 +1469,13 @@ int main(){
     def.palette = idx;
     def.materials = alloc(count * sizeof(def.materials[0]));
     def.orig_colors = alloc(count * sizeof(def.orig_colors[0]));
+    def.orig_glow = alloc(count * sizeof(def.orig_glow[0]));
+    
     memcpy(def.orig_colors, colors, count * sizeof(colors[0]));
     for(u32 i = 0; i <count; i++){
       def.materials[i] = material_new(MATERIAL_SOLID_PALETTE, idx.index + i);;
+      if(glow != NULL)
+	def.orig_glow[i] = glow[i];
     }
     
     return def;
@@ -1443,12 +1484,14 @@ int main(){
   void palette_update(palette_def def, double step){
     double ratio = step - floor(step);
     u32 * color = &game_ctx->palette->color[def.palette.index];
+    u8 * glow = &game_ctx->palette->glow[def.palette.index];
     let count = def.palette.count;
     int s = (int) step;
     for(u32 i = 0; i < count; i++){
       u32 f1 = (s + i) % count;
       u32 f2 = (s + i + 1) % count;
       color[i] = blend_color32(ratio, def.orig_colors[f1],def.orig_colors[f2]);
+      glow[i] = blend_color8(ratio, def.orig_glow[f1],def.orig_glow[f2]);
     }
   }
   
@@ -1473,13 +1516,21 @@ int main(){
   //tile_material_index legs= sub_texture(tex1, 134, 1, 153, 35);
   tile_material_index legs= sub_texture(tex1, 144, 116, 203, 216);
 
-  u32 fire_palette_colors[] = {0xFF000077, 0xFF112299, 0xFF3355BB, 0xFF5588FF, 0xFF88FFFF, 0xFFFFFFFF, 0xFF88FFFF,0xFF5588FF, 0xFF3355BB,  0xFF112299, 0xFF000077};
+  u32 fire_palette_colors[] = {0xFF000077, 0xFF112299, 0xFF3355BB, 0xFF5588FF, 0xFF88FFFF, 0xFFFFFFFF, 0xFF88FFFF,0xFF5588FF, 0xFF3355BB,  0xFF112299};
+  u8 fire_palette_glow[] = {0, 50, 100, 150, 200, 255, 200, 150, 100,  50};
   //u32 fire_palette_colors[] = {0xFFFF0000, 0xFF00FF00, 0xFF0000FF};
-  palette_def fire_palette = palette_new(fire_palette_colors, array_count(fire_palette_colors));
+  palette_def fire_palette = palette_new(fire_palette_colors, fire_palette_glow, array_count(fire_palette_colors));
 
-  u32 water_palette_colors[] = {0xFF770000, 0xFF002211, 0xFFBB5533, 0xFFFF8855, 0xFFFFFF88,0xFFFF8855, 0xFFBB5533,  0xFF992211, 0xFF770000};
+  u32 water_palette_colors[] = {0xFF770000, 0xFF002211, 0xFFBB5533,
+				0xFFFF8855, 0xFFFFFF88,0xFFFF8855, 0xFFBB5533,  0xFF992211,
+				0xFF770000};
+  u8 water_palette_glow[] = {0, 50, 100, 150, 200, 255, 200, 150, 100,  50};  
+  palette_def water_palette = palette_new(water_palette_colors, water_palette_glow, array_count(water_palette_colors));
 
-  palette_def water_palette = palette_new(water_palette_colors, array_count(water_palette_colors));
+  u32 gray_palette_colors[] = {0xFF444444,0xFF555555,0xFF444444,0xFF666666,0xFF333333,0xFF555555,0xFF444444,0xFF444444,0xFF444444};
+
+  palette_def gray_palette = palette_new(gray_palette_colors, NULL, array_count(gray_palette_colors));
+
   
   UNUSED(head);
   UNUSED(legs);
@@ -1494,10 +1545,12 @@ int main(){
   u32 l6 = create_tile(grass);
   u32 l8 = create_tile(fire_palette.materials[3]);//white);
   u32 l9 = create_tile(fire_palette.materials[6]);//white);
-  u32 water_tile1  = create_tile(water_palette.materials[0]);
-  u32 water_tile2  = create_tile(water_palette.materials[5]);
-  u32 water_tile3  = create_tile(water_palette.materials[8]);
-
+  u32 water_tile1  = create_tile(gray_palette.materials[0]);
+  u32 water_tile2  = create_tile(gray_palette.materials[5]);
+  u32 water_tile3  = create_tile(gray_palette.materials[8]);
+  
+  u32 xwater_tile1  = create_tile(water_palette.materials[0]);
+  u32 xwater_tile2  = create_tile(water_palette.materials[5]);
   
   UNUSED(l6);
   u32 grass_tile = create_tile(grass);
@@ -1506,8 +1559,8 @@ int main(){
   octree * submodel = octree_new();
   {
     octree_index index = submodel->first_index;
-    octree_index_get_payload(octree_index_get_childi(index, 0))[0] = water_tile1;
-    octree_index_get_payload(octree_index_get_childi(index, 2))[0] = water_tile2;
+    octree_index_get_payload(octree_index_get_childi(index, 0))[0] = xwater_tile1;
+    octree_index_get_payload(octree_index_get_childi(index, 2))[0] = xwater_tile2;
     //octree_index_get_payload(octree_index_get_childi(index, 1))[0] = l3;
   }
   
@@ -1638,7 +1691,7 @@ int main(){
   glfwInit();
   
   glfwWindowHint( GLFW_OPENGL_DEBUG_CONTEXT, true);
-  GLFWwindow * win = glfwCreateWindow(700, 700, "Octree Rendering", NULL, NULL);
+  GLFWwindow * win = glfwCreateWindow(512, 512, "Octree Rendering", NULL, NULL);
   glfwMakeContextCurrent(win);
   ASSERT(glewInit() == GLEW_OK);
 
@@ -1767,11 +1820,26 @@ int main(){
   camera_direction_side = vec3_mul_cross(camera_direction_up, camera_direction);
   vec3_print(camera_position);vec3_print(camera_direction);logd("\n");vec3_print(camera_direction_up);;vec3_print(camera_direction_side);logd("\n");
   glEnable(GL_DEPTH_TEST);
-  int w, h, channels;
-  var img = stbi_load("atlas.png", &w, &h, &channels, 4);
-  ASSERT(img != NULL);
-  u32 tex = loadImage(img, w, h, channels);
-  game_ctx->texatlas = tex;
+
+  u32 glow_shader = createShaderFromFiles("glow_shader.vs", "glow_shader.fs");
+  
+  if(game_ctx->glow_fb == 0){
+    glGenTextures(1, &game_ctx->glow_tex);
+    glBindTexture(GL_TEXTURE_2D, game_ctx->glow_tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 512, 512, 0, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
+    glGenFramebuffers(1, &game_ctx->glow_fb);
+    
+    glBindFramebuffer(GL_FRAMEBUFFER, game_ctx->glow_fb);
+    
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, game_ctx->glow_tex, 0);
+      
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+  }  
+
   float t = 0;
   while(glfwWindowShouldClose(win) == false){
     u64 ts = timestamp();
@@ -1812,14 +1880,34 @@ int main(){
       glViewport(0, 0, width, height);
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    { // clear the glow frame buffer.
+      glBindFramebuffer(GL_FRAMEBUFFER, game_ctx->glow_fb);
+      glClear(GL_COLOR_BUFFER_BIT);
+      glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
+    
     if(glfwGetMouseButton(win, 1)){
       camera_position = vec3_add(camera_position, vec3_scale(camera_direction_side, cursorMove.x * 0.005));
       camera_position = vec3_add(camera_position, vec3_scale(camera_direction_up, cursorMove.y * 0.005));
     }
-
+    glUseProgram(game_ctx->prog.prog);
     //continue;
     octree_iterate(oct->first_index, 1, vec3_new(0, 0.0, 0), rendervoxel);
-    
+    const bool glow_enabled = true;
+    if(glow_enabled){
+      glUseProgram(glow_shader);
+      var tex_loc = glGetUniformLocation(glow_shader, "tex");
+      var offset_loc = glGetUniformLocation(glow_shader, "offset");
+      glBindTexture(GL_TEXTURE_2D, game_ctx->glow_tex);
+      glUniform1i(tex_loc, 0);
+      glUniform2f(offset_loc, 1.0 / 512.0, 1.0 / 512.0);
+      glEnable(GL_BLEND);
+      glBlendFunc (GL_SRC_ALPHA, GL_ONE);
+      glDrawArrays(GL_TRIANGLE_STRIP,0,4);
+      glDisable(GL_BLEND);
+    }
     glfwSwapBuffers(win);
 
     cursorMove = vec2_zero;
@@ -1829,7 +1917,7 @@ int main(){
     u64 ts2 = timestamp();
     UNUSED(ts);UNUSED(ts2);
     //logd("%f s \n", ((double)(ts2 - ts) * 1e-6));    
-    iron_sleep(0.05);
+    //iron_sleep(0.05);
   }
 }
 

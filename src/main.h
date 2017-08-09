@@ -84,6 +84,8 @@ typedef struct{
   list_entity * lists;
 
   simple_shader prog;
+  u32 glow_tex;
+  u32 glow_fb;
   u32 texatlas;
 }game_context;
 
