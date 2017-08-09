@@ -1823,7 +1823,7 @@ int main(){
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 512, 512, 0, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 256, 256, 0, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
     glGenFramebuffers(1, &game_ctx->glow_fb);
     
     glBindFramebuffer(GL_FRAMEBUFFER, game_ctx->glow_fb);
@@ -1860,24 +1860,35 @@ int main(){
       next = false;
     
     
-    if(vec3_len(move) > 0.1){
-      move_request_set(mv->move_req, e1, move);
-      resolve_moves(mv);
-    }
+      if(vec3_len(move) > 0.1){
+	move_request_set(mv->move_req, e1, move);
+	resolve_moves(mv);
+      }
     }
     
-        
     int width = 0, height = 0;
+
     glfwGetWindowSize(win,&width, &height);
-    if(width > 0 && height > 0)
+    if(width > 0 && height > 0 && (game_ctx->window_width != ((u32)width) || game_ctx->window_height != ((u32)height))){
       glViewport(0, 0, width, height);
+      game_ctx->window_width = width;
+      game_ctx->window_height = height;
+      //u32 round_to_nearest_pow2(u32 x){
+	
+
+      //}
+      //glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
+    }
+
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     { // clear the glow frame buffer.
+      glViewport(0, 0, 256, 256);
       glBindFramebuffer(GL_FRAMEBUFFER, game_ctx->glow_fb);
       glClear(GL_COLOR_BUFFER_BIT);
       glBindFramebuffer(GL_FRAMEBUFFER, 0);
+      glViewport(0, 0, game_ctx->window_width, game_ctx->window_height);
     }
 
     
@@ -1891,18 +1902,19 @@ int main(){
     const bool glow_enabled = true;
     if(glow_enabled){
       glBindFramebuffer(GL_FRAMEBUFFER, game_ctx->glow_fb);
+      glViewport(0, 0, 256, 256);
       glow_pass = true;
       octree_iterate(oct->first_index, 1, vec3_new(0, 0.0, 0), rendervoxel);
       glow_pass = false;
       glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
+      glViewport(0, 0, game_ctx->window_width, game_ctx->window_height);
       
       glUseProgram(glow_shader);
       var tex_loc = glGetUniformLocation(glow_shader, "tex");
       var offset_loc = glGetUniformLocation(glow_shader, "offset");
       glBindTexture(GL_TEXTURE_2D, game_ctx->glow_tex);
       glUniform1i(tex_loc, 0);
-      glUniform2f(offset_loc, 1.0 / 512.0, 1.0 / 512.0);
+      glUniform2f(offset_loc, 1.0 / 256.0, 1.0 / 256.0);
       glEnable(GL_BLEND);
       glBlendFunc (GL_SRC_ALPHA, GL_ONE);
       glDrawArrays(GL_TRIANGLE_STRIP,0,4);

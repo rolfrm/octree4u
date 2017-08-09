@@ -87,6 +87,7 @@ typedef struct{
   u32 glow_tex;
   u32 glow_fb;
   u32 texatlas;
+  u32 window_width, window_height;
 }game_context;
 
 game_context * game_context_new();

@@ -4,7 +4,7 @@ uniform sampler2D tex;
 out vec4 fragcolor;
 in vec2 uv;
 uniform vec2 offset;
-#define RADIUS 10
+#define RADIUS 5
 void main(){
   float weight = 2 * 1.0 / ((RADIUS * 2 + 1) * (RADIUS * 2 + 1));
   for(int i = -RADIUS; i < RADIUS; i++){
