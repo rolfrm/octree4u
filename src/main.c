@@ -452,6 +452,7 @@ u8 blend_color8(double r, u8 a, u8 b){
 }
 
 
+bool glow_pass = false;
 float render_zoom = 1.0;
 vec3 render_offset = {0};
 vec3 camera_position = {0};
@@ -525,6 +526,13 @@ void render_color(u32 color, float size, vec3 p){
     float b = c8[2];
     float a = c8[3];
     
+    if(glow_pass){
+      col = blend_color32(((double)glow) / 255.0, 0, col);
+      r = c8[0];
+      g = c8[1];
+      b = c8[2];
+      a = glow;
+    }
     glUniform4f(shader.color_loc, r / 255.0, g / 255.0, b / 255.0, a / 255.0);
     vec3 _mpos = vec3_sub(p, camera_position);    
     glUniform3f(shader.orig_position_loc, _mpos.x * render_zoom, _mpos.y * render_zoom, _mpos.z * render_zoom);
@@ -567,27 +575,12 @@ void render_color(u32 color, float size, vec3 p){
       glUniform2f(shader.uv_size_loc,
 		  game_ctx->subtextures->w[id],
 		  game_ctx->subtextures->h[id]);
-      
     }else{
       glUniform1i(shader.use_texture_loc, 0);
     }
-
+    
     glUniform3f(shader.size_loc, s.x * render_zoom, s.y * render_zoom, s.z * render_zoom);
     glDrawArrays(GL_TRIANGLE_FAN, 0, 8);
-    { // draw glow.
-
-      col = blend_color32(((double)glow) / 255.0, 0, col);
-      //if(glow > 0)
-      float r = c8[0];
-      float g = c8[1];
-      float b = c8[2];
-      a = glow;
-      
-      glUniform4f(shader.color_loc, r / 255.0, g / 255.0, b / 255.0, a / 255.0);
-      glBindFramebuffer(GL_FRAMEBUFFER, game_ctx->glow_fb);
-      glDrawArrays(GL_TRIANGLE_FAN, 0, 8);
-      glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    }
   }
 }
     
@@ -1897,6 +1890,13 @@ int main(){
     octree_iterate(oct->first_index, 1, vec3_new(0, 0.0, 0), rendervoxel);
     const bool glow_enabled = true;
     if(glow_enabled){
+      glBindFramebuffer(GL_FRAMEBUFFER, game_ctx->glow_fb);
+      glow_pass = true;
+      octree_iterate(oct->first_index, 1, vec3_new(0, 0.0, 0), rendervoxel);
+      glow_pass = false;
+      glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+      
       glUseProgram(glow_shader);
       var tex_loc = glGetUniformLocation(glow_shader, "tex");
       var offset_loc = glGetUniformLocation(glow_shader, "offset");
@@ -1908,16 +1908,17 @@ int main(){
       glDrawArrays(GL_TRIANGLE_STRIP,0,4);
       glDisable(GL_BLEND);
     }
-    glfwSwapBuffers(win);
 
+    glfwSwapBuffers(win);
+    u64 ts2 = timestamp();
+    UNUSED(ts);UNUSED(ts2);
+    //logd("%f s \n", ((double)(ts2 - ts) * 1e-6));    
     cursorMove = vec2_zero;
     palette_update(fire_palette, t * 3);//floor(t * 3));
     palette_update(water_palette, t * 3);
     glfwPollEvents();
-    u64 ts2 = timestamp();
-    UNUSED(ts);UNUSED(ts2);
-    //logd("%f s \n", ((double)(ts2 - ts) * 1e-6));    
-    //iron_sleep(0.05);
+
+    //iron_sleep(0.03);
   }
 }
 
