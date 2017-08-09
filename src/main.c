@@ -1695,19 +1695,21 @@ int main(){
 
 
   vec2 cursorPos = vec2_zero;
-  vec2 cursorMove = vec2_zero;
   void cursorMoved(GLFWwindow * win, double x, double y){
     UNUSED(win);
     vec2 newpos = vec2_new(x, y);
-    cursorMove = vec2_sub(newpos, cursorPos);
+    vec2 oldpos = cursorPos;
     cursorPos = newpos;
+    var move = vec2_scale(vec2_sub(oldpos, newpos), 0.4 * 1.0 / render_zoom);
+    if(glfwGetMouseButton(win, 1)){
+      camera_position = vec3_add(camera_position, vec3_scale(camera_direction_side, move.x * 0.005));
+      camera_position = vec3_add(camera_position, vec3_scale(camera_direction_up, -move.y * 0.005));
+    }
     //vec2_print(newpos);logd("\n");
   }
-  bool next = true;
   void keyfun(GLFWwindow* w,int k,int s,int a,int m){
     UNUSED(w);UNUSED(k);UNUSED(s);UNUSED(m);
-    if(a == 1)
-      next = true;
+    UNUSED(a);
   }
 
   void mbfun(GLFWwindow * w, int button, int action, int mods){
@@ -1834,6 +1836,7 @@ int main(){
   }  
 
   float t = 0;
+  f128 current_time = timestampf();
   while(glfwWindowShouldClose(win) == false){
     u64 ts = timestamp();
     //render_zoom *= 1.01;
@@ -1848,22 +1851,21 @@ int main(){
     int w = glfwGetKey(win, GLFW_KEY_W);
     int s = glfwGetKey(win, GLFW_KEY_S);
     vec3 move = vec3_new((right - left) * 0.25, (w - s) * 0.25, (up - down) * 0.25);
-    //vec3_print(move);logd("\n");
-    next = true;
-    if(next){
+    
+    
+    if((timestampf() - current_time) > 0.1){
       for(u32 i = 1; i < game_ctx->entity_ctx->count; i++){
 	move_request_set(mv->move_req, i, vec3_new(0, -0.25, 0));
       }
       //logd("move resolve %i\n", _idx++);
       resolve_moves(mv);    
       move_request_clear(mv->move_req);
-      next = false;
-    
     
       if(vec3_len(move) > 0.1){
 	move_request_set(mv->move_req, e1, move);
 	resolve_moves(mv);
       }
+      current_time = timestampf();
     }
     
     int width = 0, height = 0;
@@ -1873,11 +1875,6 @@ int main(){
       glViewport(0, 0, width, height);
       game_ctx->window_width = width;
       game_ctx->window_height = height;
-      //u32 round_to_nearest_pow2(u32 x){
-	
-
-      //}
-      //glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
     }
 
 
@@ -1890,12 +1887,7 @@ int main(){
       glBindFramebuffer(GL_FRAMEBUFFER, 0);
       glViewport(0, 0, game_ctx->window_width, game_ctx->window_height);
     }
-
     
-    if(glfwGetMouseButton(win, 1)){
-      camera_position = vec3_add(camera_position, vec3_scale(camera_direction_side, cursorMove.x * 0.005));
-      camera_position = vec3_add(camera_position, vec3_scale(camera_direction_up, cursorMove.y * 0.005));
-    }
     glUseProgram(game_ctx->prog.prog);
     //continue;
     octree_iterate(oct->first_index, 1, vec3_new(0, 0.0, 0), rendervoxel);
@@ -1925,9 +1917,8 @@ int main(){
     u64 ts2 = timestamp();
     UNUSED(ts);UNUSED(ts2);
     //logd("%f s \n", ((double)(ts2 - ts) * 1e-6));    
-    cursorMove = vec2_zero;
     palette_update(fire_palette, t * 3);//floor(t * 3));
-    palette_update(water_palette, t * 3);
+    palette_update(water_palette, t * 1);
     glfwPollEvents();
 
     //iron_sleep(0.03);
