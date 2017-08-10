@@ -604,10 +604,6 @@ void trace_dir(octree_iterator * it, octree_index m, vec3 offset, vec3 step, int
 
 void remove_subs(const octree_index_ctx * ctx){
   const octree_index index = ctx->index;
-  float s = ctx->s;
-  vec3 p = ctx->p;
-  UNUSED(s);
-  UNUSED(p);
   bool remove_sub(u32 payload){
     if(payload == 0)
       return false;
@@ -623,9 +619,6 @@ void remove_subs(const octree_index_ctx * ctx){
   while(lst.ptr != 0){
     if(remove_sub(list_index_get(lst))){
       lst = list_index_pop(lst);
-      if(lst.ptr == 0)
-	break;
-	
     }else
       lst = list_index_next(lst);
   }
@@ -671,6 +664,9 @@ void gen_subs(const octree_iterator * i, float s, vec3 p){
   }
 }
 
+// Calculates which node should contain which entities and moves the
+// entities correspondingly. The offset of an entitiy has to always be
+// between 0 and 1. Otherwise they need to be moved to an adjacent node.
 void update_entity_nodes(const octree_iterator * i, float s, vec3 p){
   UNUSED(p);
   UNUSED(s);
@@ -681,14 +677,18 @@ void update_entity_nodes(const octree_iterator * i, float s, vec3 p){
     u32 type = game_ctx->entity_type[id];
     u32 val = game_ctx->entity_id[id];
     if(type == GAME_ENTITY){
+      
       vec3 offset = game_ctx->entity_ctx->offset[val];
       vec3 r = vec3_new(floorf(offset.x), floorf(offset.y), floorf(offset.z));
       if(vec3_sqlen(vec3_abs(r)) < 0.1)
-	return;
+	goto next;
+      
       int x = (int)r.x, y = (int)r.y, z = (int)r.z;
       octree_iterator * i2 = octree_iterator_clone(i);
-      if(!octree_iterator_try_move(i2, x, y, z))
-	return;
+      if(!octree_iterator_try_move(i2, x, y, z)){
+	logd("Cannot move..\n");
+	goto next;
+      }
       
       {
 	list_index lst2 = octree_iterator_payload_list(i2);
@@ -699,10 +699,10 @@ void update_entity_nodes(const octree_iterator * i, float s, vec3 p){
       lst = list_index_pop(lst);
       game_ctx->entity_ctx->offset[val] = vec3_sub(game_ctx->entity_ctx->offset[val], r);
       octree_iterator_destroy(&i2);
-
-    }else{
-      lst = list_index_next(lst);
+      continue;
     }
+  next:
+    lst = list_index_next(lst);
   }
 }
 
@@ -1227,30 +1227,125 @@ void test_blend(){
     
 
   }
+}
+
+u32 create_tile(tile_material_index color){
+  u32 id = game_context_alloc(game_ctx);
+  game_ctx->entity_type[id] = GAME_ENTITY_TILE;
+  game_ctx->entity_id[id] = color.index;
+  return list_entity_push(game_ctx->lists, 0, id);
+}
+
+tile_material_index material_new(material_type type, u32 id){
+  var newmat = tile_material_alloc(game_ctx->materials);
+  game_ctx->materials->type[newmat.index] = type;
+  game_ctx->materials->material_id[newmat.index] = id;
+  return newmat;
+}
+
+vec3 get_position_of_entity(octree * oct, u32 entity){
+    bool found = false;
+    vec3 p = vec3_zero;
+    void lookup(const octree_index_ctx * ctx){
+      if(found) return;
+
+      const octree_index index = ctx->index;
+      list_index lst = octree_index_payload_list(index);
+      for(;lst.ptr != 0; lst = list_index_next(lst)){
+	if(list_index_get(lst) == entity){
+	  found = true;
+	  p = ctx->p;
+	  return;
+	}
+      }
+      octree_iterate_on(ctx);
+    }
+    octree_iterate(oct->first_index, 1, vec3_new(0, 0.0, 0), lookup);
+    return p;
+  }
 
 
+// detects a previously existing jump related bug.
+// After this started passing the bug has not been seen.
+void test_jump_bug(){
+  logd("TEST JUMP BUG\n");
+  game_ctx = game_context_new();
+  octree * oct = octree_new();
+  octree_index idx = oct->first_index;
+  octree_iterator * it = octree_iterator_new(idx);
+  octree_iterator_child(it, 0, 0, 0); //   2
+  octree_iterator_child(it, 1, 1, 1); //   4
+  octree_iterator_child(it, 0, 0, 0); //   8
+  var red = material_new(MATERIAL_SOLID_COLOR, 0xFF0000FF);
+  u32 red_tile = create_tile(red);
+
+  octree * submodel = octree_new();
+  {
+    octree_index index = submodel->first_index;
+    octree_index_get_payload(octree_index_get_childi(index, 0))[0] = red_tile;
+    octree_index_get_payload(octree_index_get_childi(index, 2))[0] = red_tile;
+  }
+  
+  u32 i1 = game_context_alloc(game_ctx);
+  u32 e1 = entities_alloc(game_ctx->entity_ctx);
+  game_ctx->entity_type[i1] = GAME_ENTITY;
+  game_ctx->entity_id[i1] = e1;
+  game_ctx->entity_ctx->model[e1] = submodel->first_index;
+  game_ctx->entity_ctx->offset[e1] = vec3_new(0.5,2,0);
+
+  u32 i2 = game_context_alloc(game_ctx);
+  u32 e2 = entities_alloc(game_ctx->entity_ctx);
+  game_ctx->entity_type[i2] = GAME_ENTITY;
+  game_ctx->entity_id[i2] = e2;
+  game_ctx->entity_ctx->model[e2] = submodel->first_index;
+  game_ctx->entity_ctx->offset[e2] = vec3_new(0,0.25,0);
+
+  u32 l1 = list_entity_push(game_ctx->lists, 0, i1);
+  u32 l2 = list_entity_push(game_ctx->lists, l1, i2);
+  u32 entity_1 = l1;
+  u32 entity_2 = l2;
+  
+  octree_iterator_payload(it)[0] = red_tile;
+  octree_iterator_move(it, 0, 1, 0);
+  octree_iterator_child(it, 0, 0, 0);
+  octree_iterator_payload(it)[0] = l2;
+
+  it = octree_iterator_new(oct->first_index);
+  octree_iterator_iterate(it, 1, vec3_zero, update_entity_nodes);
+  vec3 pos11 = get_position_of_entity(oct, entity_1);
+  vec3 offset1 = game_ctx->entity_ctx->offset[e1];
+  vec3 pos21 = get_position_of_entity(oct, entity_2);
+  vec3 offset2 = game_ctx->entity_ctx->offset[e2];
+  ASSERT(fabs(offset1.y) < 0.001);
+  ASSERT(fabs(offset2.y - 0.25) < 0.001);
+  
+  move_resolver * mv = move_resolver_new(oct->first_index);
+  for(int i = 0; i < 100; i++){
+    octree_iterator_iterate(it, 1, vec3_zero, update_entity_nodes);
+    for(u32 i = 1; i < game_ctx->entity_ctx->count; i++){
+      move_request_set(mv->move_req, i, vec3_new(0, -0.25, 0));
+    }
+    resolve_moves(mv);    
+    move_request_clear(mv->move_req);
+  }
+
+  vec3 pos12 = get_position_of_entity(oct, entity_1);
+  
+  vec3 pos22 = get_position_of_entity(oct, entity_2);
+  ASSERT(fabs(pos22.y - pos12.y) < 0.01);
+  ASSERT(fabs(pos21.y - pos11.y) < 0.01);
+  
 }
 
 int main(){  
   list_entity_test();
   octree_test();
   test_trace_ray();
-  
+  test_jump_bug();
+  //return 0;
   game_ctx = game_context_new();
+  
 
-  u32 create_tile(tile_material_index color){
-    u32 id = game_context_alloc(game_ctx);
-    game_ctx->entity_type[id] = GAME_ENTITY_TILE;
-    game_ctx->entity_id[id] = color.index;
-    return list_entity_push(game_ctx->lists, 0, id);
-  }
-
-  tile_material_index material_new(material_type type, u32 id){
-    var newmat = tile_material_alloc(game_ctx->materials);
-    game_ctx->materials->type[newmat.index] = type;
-    game_ctx->materials->material_id[newmat.index] = id;
-    return newmat;
-  }
 
   texdef_index load_texture(const char * name){
     pstring_indexes path_idx = load_string(game_ctx->strings, name);
@@ -1541,29 +1636,9 @@ int main(){
     UNUSED(a);
   }
 
-  vec3 get_position_of_entity(u32 entity){
-    bool found = false;
-    vec3 p = vec3_zero;
-    void lookup(const octree_index_ctx * ctx){
-      if(found) return;
-
-      const octree_index index = ctx->index;
-      list_index lst = octree_index_payload_list(index);
-      for(;lst.ptr != 0; lst = list_index_next(lst)){
-	if(list_index_get(lst) == entity){
-	  found = true;
-	  p = ctx->p;
-	  return;
-	}
-      }
-      octree_iterate_on(ctx);
-    }
-    octree_iterate(oct->first_index, 1, vec3_new(0, 0.0, 0), lookup);
-    return p;
-  }
-
+  
   void center_on_thing(u32 thing){
-    vec3 pos = get_position_of_entity(thing);
+    vec3 pos = get_position_of_entity(oct, thing);
     vec3 newcam = vec3_sub(pos, vec3_scale(camera_direction, 0.5));
     camera_position = newcam;
 
@@ -1576,16 +1651,13 @@ int main(){
     // in rendering this means that 
     // float ang = sin(M_PI/4);
     // however the camera projection vectors are calculated elsewhere.
-    if(action != 1)
+    UNUSED(mods);
+    if(action != 1 && button != 0)
       return;
-    UNUSED(w);
-    logd("Click: %i %i %i\n", button, action, mods);
     vec2 cpos = glfwGetNormalizedCursorPos(w);
-    //vec2_print(cpos);logd("\n");
     var side = vec3_scale(camera_direction_side, cpos.x / render_zoom / 2);
     var up = vec3_scale(camera_direction_up, cpos.y / render_zoom / 2);
     vec3 pstart = vec3_add(camera_position, vec3_add(up, side));
-    //vec3_print(pstart);logd("\n");
 
     octree_index indexes[20];
     trace_ray_result r = {0};
@@ -1601,7 +1673,7 @@ int main(){
     
     r.on_hit = hittest;
     bool hit = trace_ray(indexes, pstart, camera_direction, &r);
-    logd("GOt entity: %i - %i\n",entity, e1);
+    logd("Hit entity: %i - %i\n",entity, e1);
     if(entity != 0){
       e1 = entity;
       center_on_thing(hitthing);
@@ -1624,61 +1696,16 @@ int main(){
 
   move_resolver * mv = move_resolver_new(oct->first_index);
   
-  octree_iterator_iterate(it, 1, vec3_zero, update_entity_nodes);
-  
-  move_resolver_update_possible_collisions(mv);
-
-  u32 collision_count = item_list_count(mv->collision_stack);
-  void get_collision_data(collision_data_part part, vec3 * o_offset, float * o_s, octree_index * o_model, u32 * real_collider){
-	*o_offset = part.position;
-	*o_s = part.size;
-	*o_model = (octree_index){0};
-	u32 id = part.id;
-	*real_collider = id;
-	ASSERT(id != 0);
-	if(get_type(id) ==  GAME_ENTITY_TILE){
-	  return;
-	}
-	if(get_type(id) == GAME_ENTITY_SUB_ENTITY){
-	  u32 subid = game_ctx->entity_id[id];
-	  u32 eid = game_ctx->entity_id[game_ctx->entity_sub_ctx->entity[subid]];
-	  vec3 offset2 = game_ctx->entity_sub_ctx->offset[subid];
-	  *o_offset = vec3_add(*o_offset, vec3_scale(offset2, part.size));
-	  
-	  vec3 offset3 = game_ctx->entity_ctx->offset[eid];
-	  *o_offset = vec3_add(*o_offset, vec3_scale(offset3, part.size));
-	  *o_model = game_ctx->entity_ctx->model[eid];
-	  *real_collider = game_ctx->entity_sub_ctx->entity[subid];
-	}
-	
-	if(get_type(id) == GAME_ENTITY){
-	  u32 eid = game_ctx->entity_id[id];
-	  vec3 offset3 = game_ctx->entity_ctx->offset[eid];
-	  *o_offset = vec3_add(*o_offset, vec3_scale(offset3, part.size));
-	  *o_model = game_ctx->entity_ctx->model[eid];
-	}
-      }
-
-  u32 ids[2] = {0};
-  vec3 o1, o2;
-  float s1, s2;
-  octree_index m1, m2;
-  
-  get_collision_data(mv->collision_stack[0].collider1, &o1, &s1, &m1, ids);
-  get_collision_data(mv->collision_stack[0].collider2, &o2, &s2, &m2, ids + 1);
-  logd("%i %i\n", ids[0], ids[1]);
-  logd("Count: %i\n", collision_count);
   render_zoom = 90;
   camera_direction = vec3_new(1.0 / sqrtf(2.0),-1, 1/sqrtf(2.0));
-  vec3_print(camera_direction);logd("\n");
   
   camera_position = vec3_add(vec3_new(0.48,0.1,0.5), vec3_scale(camera_direction, -5));
   camera_direction_side = vec3_mul_cross(camera_direction_up, camera_direction);
-  vec3_print(camera_position);vec3_print(camera_direction);logd("\n");vec3_print(camera_direction_up);;vec3_print(camera_direction_side);logd("\n");
-  glEnable(GL_DEPTH_TEST);
-  glow_shader glow_shader = load_glow_shader();
   
-  if(game_ctx->glow_fb == 0){
+  glEnable(GL_DEPTH_TEST);
+  glow_shader glow_shader = load_glow_shader();  
+
+  { // load framebuffer for glow rendering
     glGenTextures(1, &game_ctx->glow_tex);
     glBindTexture(GL_TEXTURE_2D, game_ctx->glow_tex);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
@@ -1686,12 +1713,10 @@ int main(){
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 256, 256, 0, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
+    
     glGenFramebuffers(1, &game_ctx->glow_fb);
-    
-    glBindFramebuffer(GL_FRAMEBUFFER, game_ctx->glow_fb);
-    
+    glBindFramebuffer(GL_FRAMEBUFFER, game_ctx->glow_fb);  
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, game_ctx->glow_tex, 0);
-      
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
   }  
   center_on_thing(i1);
@@ -1737,7 +1762,6 @@ int main(){
       game_ctx->window_height = height;
     }
 
-
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     { // clear the glow frame buffer.
@@ -1749,7 +1773,6 @@ int main(){
     }
     
     glUseProgram(game_ctx->prog.prog);
-    //continue;
     octree_iterate(oct->first_index, 1, vec3_new(0, 0.0, 0), rendervoxel);
     const bool glow_enabled = true;
     if(glow_enabled){
@@ -1771,7 +1794,7 @@ int main(){
       glDrawArrays(GL_TRIANGLE_STRIP,0,4);
       glDisable(GL_BLEND);
     }
-
+    
     glfwSwapBuffers(win);
     u64 ts2 = timestamp();
     var seconds_spent = ((double)(ts2 - ts) * 1e-6);
@@ -1780,13 +1803,14 @@ int main(){
     if(seconds_spent < 0.016){
       iron_sleep(0.016 - seconds_spent);
     }
+
+    // update palettes
     palette_update(fire_palette, t * 1);//floor(t * 3));
     palette_update(water_palette, t * 1);
     palette_update(light_gray_palette, t);
     palette_update(deep_water_palette, t * 0.3);
-    glfwPollEvents();
-    
 
+    glfwPollEvents();
   }
 }
 
