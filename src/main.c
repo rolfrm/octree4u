@@ -2,6 +2,7 @@
 #include <math.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <stdarg.h>
 #include <iron/types.h>
 #include <GL/glew.h>
@@ -14,7 +15,6 @@
 #include <iron/linmath.h>
 #include <iron/math.h>
 #include "move_request.h"
-#include "move_request.c"
 #include "octree.h"
 #include "gl_utils.h"
 #include "list_entity.h"
@@ -1354,6 +1354,8 @@ int main(){
   palette_def light_gray_palette = palette_new(light_gray_palette_colors, light_gray_palette_glow, array_count(light_gray_palette_colors));
 
   u32 deep_water_palette_colors[] = {0xFF440505, 0xFF490505, 0xFF551111, 0xFF490505, 0xFF440505};
+  for(u32 i = 0; i < array_count(deep_water_palette_colors); i++)
+    deep_water_palette_colors[i] = blend_color32(0.8, deep_water_palette_colors[i], 0xFF222222);
   palette_def deep_water_palette = palette_new(deep_water_palette_colors, NULL, array_count(deep_water_palette_colors));  
   
   UNUSED(head);
@@ -1492,7 +1494,7 @@ int main(){
   octree_iterator_move(it,-40,-19,0);
   for(int j = -50; j < 50; j++){
       for(int i = -50; i < 50; i++){
-	float phase = ((float) j + i / 3) * 0.5;
+	float phase = ((float) j + i / 3) * 1;
 	//float sphasef = //(sin(phase) + 1.0) * 0.5;
 	int sphasei = ((int)phase) % array_count(deep_water_palette_colors); //(int) (sphasef * array_count(deep_water_palette_colors));
 	octree_iterator_payload(it)[0] = deep_water_tiles[sphasei];
@@ -1509,9 +1511,12 @@ int main(){
   glfwInit();
   
   glfwWindowHint( GLFW_OPENGL_DEBUG_CONTEXT, true);
+
   GLFWwindow * win = glfwCreateWindow(512, 512, "Octree Rendering", NULL, NULL);
   glfwMakeContextCurrent(win);
+  glfwSwapInterval(2);  
   ASSERT(glewInit() == GLEW_OK);
+
   gl_init_debug_calls();
   glClearColor(0.0, 0.0, 0.0, 0.0);
 
@@ -1769,21 +1774,19 @@ int main(){
 
     glfwSwapBuffers(win);
     u64 ts2 = timestamp();
-    UNUSED(ts);UNUSED(ts2);
-    //logd("%f s \n", ((double)(ts2 - ts) * 1e-6));    
+    var seconds_spent = ((double)(ts2 - ts) * 1e-6);
+    
+    logd("%f s \n", seconds_spent);
+    if(seconds_spent < 0.016){
+      iron_sleep(0.016 - seconds_spent);
+    }
     palette_update(fire_palette, t * 1);//floor(t * 3));
     palette_update(water_palette, t * 1);
     palette_update(light_gray_palette, t);
     palette_update(deep_water_palette, t * 0.3);
     glfwPollEvents();
+    
 
-    //iron_sleep(0.03);
   }
 }
 
-
-#include "pstring.c"
-#include "tile_material.c"
-#include "texdef.c"
-#include "subtexdef.c"
-#include "palette.c"

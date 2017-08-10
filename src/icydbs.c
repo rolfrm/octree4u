@@ -1,0 +1,25 @@
+#include <stdbool.h>
+#include <math.h>
+#include <string.h>
+#include <stdint.h>
+#include <stdarg.h>
+#include <iron/types.h>
+#include <iron/log.h>
+#include <iron/mem.h>
+#include <iron/fileio.h>
+#include <iron/time.h>
+#include <iron/utils.h>
+#include <iron/linmath.h>
+#include <iron/math.h>
+#include "move_request.h"
+#include "octree.h"
+#include "gl_utils.h"
+#include "list_entity.h"
+#include "main.h"
+
+#include "pstring.c"
+#include "tile_material.c"
+#include "texdef.c"
+#include "subtexdef.c"
+#include "palette.c"
+#include "move_request.c"
