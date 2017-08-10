@@ -26,14 +26,6 @@ typedef struct{
 }entity_sub_offset;
 
 typedef struct{
-  u32 * id;
-  u32 * next;
-  u32 count;
-  u32 capacity;
-  u32 first_free;
-}list_entity;
-
-typedef struct{
   u32 ptr;
   u32 list_id;
   octree_index origin;
@@ -50,19 +42,7 @@ typedef enum{
 #include "texdef.h"
 #include "subtexdef.h"
 #include "palette.h"
-typedef struct{
-  u32 prog;
-  u32 color_loc;
-  u32 orig_position_loc;
-  u32 orig_size_loc;
-  u32 position_loc;
-  u32 size_loc;
-  u32 tex_loc;
-  u32 uv_offset_loc;
-  u32 uv_size_loc;
-  u32 use_texture_loc;
 
-}simple_shader;
 
 typedef struct{
   pstring * strings;
@@ -102,12 +82,7 @@ u32 entity_sub_offset_alloc(entity_sub_offset * ctx);
 entity_sub_offset * entity_sub_offset_new();
 void entity_sub_offset_destroy(entity_sub_offset ** sub);
 
-list_entity * list_entity_new();
-void list_entity_destroy(list_entity **lst);
-u32 list_entity_alloc(list_entity * lst);
-u32 list_entity_push(list_entity * lst, u32 head, u32 value);
-u32 list_entity_pop(list_entity * lst, u32 head);
-void list_entity_test();
+
 
 void rendervoxel(const octree_index_ctx * ctx);
 void render_color(u32 color, float size, vec3 p);

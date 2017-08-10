@@ -16,127 +16,11 @@
 #include "move_request.h"
 #include "move_request.c"
 #include "octree.h"
+#include "gl_utils.h"
+#include "list_entity.h"
 #include "main.h"
 #include "item_list.h"
 #include "stb_image.h"
-
-u32 loadImage(u8 * pixels, u32 width, u32 height, u32 channels){
-  
-  GLuint tex;
-  glGenTextures(1, &tex);
-
-  glBindTexture(GL_TEXTURE_2D, tex);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  u32 intype = 0;
-  switch(channels){
-  case 1:
-    intype = GL_RED;
-    break;
-  case 2:
-    intype = GL_RG;
-    break;
-  case 3:
-    intype = GL_RGB;
-    break;
-  case 4:
-    intype = GL_RGBA;
-    break;
-  default:
-    ERROR("Invalid number of channels %i", channels);
-  }
-  glTexImage2D(GL_TEXTURE_2D, 0, intype, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-  glGenerateMipmap(GL_TEXTURE_2D);
-  return tex;
-}
-
-u32 compileShader(int program, const char * code){
-  u32 ss = glCreateShader(program);
-  i32 l = strlen(code);
-  glShaderSource(ss, 1, (void *) &code, &l); 
-  glCompileShader(ss);
-  int compileStatus = 0;	
-  glGetShaderiv(ss, GL_COMPILE_STATUS, &compileStatus);
-  if(compileStatus == 0){
-    logd("Error during shader compilation:");
-    int loglen = 0;
-    glGetShaderiv(ss, GL_INFO_LOG_LENGTH, &loglen);
-    char * buffer = alloc0(loglen);
-    glGetShaderInfoLog(ss, loglen, NULL, buffer);
-
-    logd("%s", buffer);
-    dealloc(buffer);
-  } else{
-    logd("Compiled shader with success\n");
-  }
-  return ss;
-}
-
-u32 compileShaderFromFile(u32 gl_prog_type, const char * filepath){
-  char * vcode = read_file_to_string(filepath);
-  u32 vs = compileShader(gl_prog_type, vcode);
-  dealloc(vcode);
-  return vs;
-}
-
-u32 createShaderFromFiles(const char * vs_path, const char * fs_path){
-  u32 vs = compileShaderFromFile(GL_VERTEX_SHADER, vs_path);
-  u32 fs = compileShaderFromFile(GL_FRAGMENT_SHADER, fs_path);
-  u32 prog = glCreateProgram();
-  glAttachShader(prog, vs);
-  glAttachShader(prog, fs);
-  glLinkProgram(prog);
-  return prog;
-}
-
-simple_shader load_simple_shader(){
-  simple_shader s = {0};
-  
-  var prog = createShaderFromFiles("simple_shader.vs", "simple_shader.fs");
-  s.prog = prog;
-  s.color_loc = glGetUniformLocation(prog, "color");
-  s.orig_position_loc = glGetUniformLocation(prog, "orig_position");
-  s.orig_size_loc = glGetUniformLocation(prog, "orig_size");
-  s.position_loc = glGetUniformLocation(prog, "position");
-  s.size_loc = glGetUniformLocation(prog, "size");
-  s.tex_loc = glGetUniformLocation(prog, "tex");
-  s.uv_offset_loc = glGetUniformLocation(prog, "uv_offset");
-  s.uv_size_loc = glGetUniformLocation(prog, "uv_size");
-  s.use_texture_loc = glGetUniformLocation(prog, "use_texture");
-  return s;
-}
-
-
-void debugglcalls(GLenum source,
-		  GLenum type,
-		  GLuint id,
-		  GLenum severity,
-		  GLsizei length,
-		  const GLchar *message,
-		  const void *userParam){
-  UNUSED(length);
-  UNUSED(userParam);
-
-  switch(type){
-  case GL_DEBUG_TYPE_ERROR:
-    logd("%i %i %i i\n", source, type, id, severity);
-    ERROR("%s\n", message);
-    ASSERT(false);
-  case GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR:
-  case GL_DEBUG_TYPE_PORTABILITY:
-  case GL_DEBUG_TYPE_OTHER:
-    return;
-  case GL_DEBUG_TYPE_PERFORMANCE:
-    break;
-  default:
-    break;
-  }
-  logd("%i %i %i i\n", source, type, id, severity);
-  logd("%s\n", message);
-}
-
 
 game_context * game_context_new(){
   game_context * gctx = alloc0(sizeof(game_context));
@@ -158,7 +42,6 @@ void game_context_destroy(game_context ** ctx){
   entities_destroy(&c->entity_ctx);
   entity_sub_offset_destroy(&c->entity_sub_ctx);
   list_entity_destroy(&c->lists);
-
 }
 
 // Allocates a game entitiy.
@@ -240,7 +123,6 @@ u32 entity_sub_offset_alloc(entity_sub_offset * ctx){
   return newidx;
 }
 
-
 entity_sub_offset * entity_sub_offset_new(){
   entity_sub_offset * gctx = alloc0(sizeof(entity_sub_offset));
   entity_sub_offset_alloc(gctx); 
@@ -253,63 +135,6 @@ void entity_sub_offset_destroy(entity_sub_offset ** sub){
   dealloc(s->offset);
   dealloc(s->entity);
   dealloc(s);
-}
-
-list_entity * list_entity_new(){
-  list_entity * lst = alloc0(sizeof(list_entity));
-  list_entity_alloc(lst);
-  return lst;
-}
-
-void list_entity_destroy(list_entity **lst){
-  list_entity * l = *lst;
-  *lst = NULL;
-  dealloc(l->id);
-  dealloc(l->next);
-  dealloc(l);
-}
-
-u32 list_entity_alloc(list_entity * lst){
-  if(lst->first_free > 0){
-    u32 newidx = REPLACE(lst->first_free, lst->next[lst->first_free]);
-    lst->next[newidx] = 0;
-    lst->id[newidx] = 0;
-    MAKE_UNDEFINED(lst->id[newidx]);
-    ASSERT(newidx != 0);
-    return newidx;
-  }
-  if(lst->count == lst->capacity){
-    u32 newcapacity = MAX(lst->count * 2, 8);
-    lst->id = ralloc(lst->id, newcapacity * sizeof(lst->id[0]));
-    lst->next = ralloc(lst->next, newcapacity * sizeof(lst->next[0]));
-    lst->capacity = newcapacity;
-  }
-  u32 newidx = lst->count++;
-  lst->id[newidx] = 0;
-  lst->next[newidx] = 0;
-  MAKE_UNDEFINED(lst->id[newidx]);
-  
-  return newidx;
-}
-
-u32 list_entity_push(list_entity * lst, u32 head, u32 value){
-  ASSERT(head < lst->count);
-  u32 newidx = list_entity_alloc(lst);
-  ASSERT(newidx != head);
-  lst->next[newidx] = head;
-  lst->id[newidx] = value;
-  return newidx;
-}
-
-u32 list_entity_pop(list_entity * lst, u32 head){
-  ASSERT(head != 0);
-  
-  lst->id[head] = 0;
-  MAKE_UNDEFINED(lst->id[head]);
-  u32 newhead = REPLACE(lst->next[head], 0);
-  lst->next[head] = lst->first_free;
-  lst->first_free = head;
-  return newhead;
 }
 
 list_index octree_index_payload_list(const octree_index index){
@@ -1687,8 +1512,7 @@ int main(){
   GLFWwindow * win = glfwCreateWindow(512, 512, "Octree Rendering", NULL, NULL);
   glfwMakeContextCurrent(win);
   ASSERT(glewInit() == GLEW_OK);
-
-  glDebugMessageCallback(debugglcalls, NULL);
+  gl_init_debug_calls();
   glClearColor(0.0, 0.0, 0.0, 0.0);
 
   game_ctx->prog = load_simple_shader();
@@ -1847,8 +1671,7 @@ int main(){
   camera_direction_side = vec3_mul_cross(camera_direction_up, camera_direction);
   vec3_print(camera_position);vec3_print(camera_direction);logd("\n");vec3_print(camera_direction_up);;vec3_print(camera_direction_side);logd("\n");
   glEnable(GL_DEPTH_TEST);
-
-  u32 glow_shader = createShaderFromFiles("glow_shader.vs", "glow_shader.fs");
+  glow_shader glow_shader = load_glow_shader();
   
   if(game_ctx->glow_fb == 0){
     glGenTextures(1, &game_ctx->glow_tex);
@@ -1933,12 +1756,11 @@ int main(){
       glBindFramebuffer(GL_FRAMEBUFFER, 0);
       glViewport(0, 0, game_ctx->window_width, game_ctx->window_height);
       
-      glUseProgram(glow_shader);
-      var tex_loc = glGetUniformLocation(glow_shader, "tex");
-      var offset_loc = glGetUniformLocation(glow_shader, "offset");
+      glUseProgram(glow_shader.prog);
+
       glBindTexture(GL_TEXTURE_2D, game_ctx->glow_tex);
-      glUniform1i(tex_loc, 0);
-      glUniform2f(offset_loc, 1.0 / 256.0, 1.0 / 256.0);
+      glUniform1i(glow_shader.tex_loc, 0);
+      glUniform2f(glow_shader.offset_loc, 1.0 / 256.0, 1.0 / 256.0);
       glEnable(GL_BLEND);
       glBlendFunc (GL_SRC_ALPHA, GL_ONE);
       glDrawArrays(GL_TRIANGLE_STRIP,0,4);
