@@ -23,7 +23,7 @@
 #include "stb_image.h"
 #include "collision_detection.h"
 #include "ray.h"
-
+#include "render.h"
 // After this started passing the bug has not been seen.
 void test_jump_bug(){
   logd("TEST JUMP BUG\n");

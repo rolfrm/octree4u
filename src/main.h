@@ -37,7 +37,6 @@ typedef enum{
 #include "subtexdef.h"
 #include "palette.h"
 
-
 typedef struct{
   pstring * strings;
   texdef * textures;
@@ -75,8 +74,6 @@ u32 entities_alloc(entities * ctx);
 u32 entity_sub_offset_alloc(entity_sub_offset * ctx);
 entity_sub_offset * entity_sub_offset_new();
 void entity_sub_offset_destroy(entity_sub_offset ** sub);
-
-
 
 void rendervoxel(const octree_index_ctx * ctx);
 void render_color(u32 color, float size, vec3 p);

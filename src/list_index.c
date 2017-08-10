@@ -8,10 +8,8 @@
 #include <iron/log.h>
 #include <iron/mem.h>
 #include <iron/fileio.h>
-#include <iron/time.h>
 #include <iron/utils.h>
 #include <iron/linmath.h>
-#include <iron/math.h>
 #include "octree.h"
 #include "list_index.h"
 #include "move_request.h"
