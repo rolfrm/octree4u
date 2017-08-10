@@ -1,1 +1,0 @@
-src/stb_image.o: src/stb_image.c src/stb_image.h

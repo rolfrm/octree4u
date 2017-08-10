@@ -25,12 +25,6 @@ typedef struct{
   u32 capacity;
 }entity_sub_offset;
 
-typedef struct{
-  u32 ptr;
-  u32 list_id;
-  octree_index origin;
-}list_index;
-
 typedef enum{
   MATERIAL_SOLID_COLOR,
   MATERIAL_TEXTURED,
@@ -88,9 +82,12 @@ void rendervoxel(const octree_index_ctx * ctx);
 void render_color(u32 color, float size, vec3 p);
 extern game_context * game_ctx;
 
-WARN_UNUSED list_index octree_index_payload_list(const octree_index index);
-WARN_UNUSED list_index octree_iterator_payload_list(const octree_iterator * index);
-WARN_UNUSED u32 list_index_get(list_index lst);
-WARN_UNUSED list_index list_index_next(list_index lst);
-WARN_UNUSED list_index list_index_pop(list_index lst);
-WARN_UNUSED list_index list_index_push(list_index l2, u32 val);
+game_entity_kind get_type(u32 id);
+
+vec3 get_position_of_entity(octree * oct, u32 entity);
+tile_material_index material_new(material_type type, u32 id);
+u32 create_tile(tile_material_index color);
+pstring_indexes load_string(pstring * pstring_table, const char * base);
+
+u32 blend_color32(double r, u32 a, u32 b);
+u8 blend_color8(double r, u8 a, u8 b);
