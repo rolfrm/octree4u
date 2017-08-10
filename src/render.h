@@ -8,5 +8,8 @@ extern vec3 camera_position;
 extern vec3 camera_direction;
 extern vec3 camera_direction_up;
 extern vec3 camera_direction_side;
+
+extern simple_shader simple_shader_instance;
+
 void render_color(u32 color, float size, vec3 p);
 void rendervoxel(const octree_index_ctx * ctx);

@@ -21,7 +21,7 @@
 #include "main.h"
 #include "item_list.h"
 #include "collision_detection.h"
-
+#include "game_context.h"
 bool calc_collision(vec3 o1, vec3 o2, float s1, float s2, octree_index m1, octree_index m2, collision_data * o){
   bool has_color(octree_index m){
     if(m.oct == NULL) return true;

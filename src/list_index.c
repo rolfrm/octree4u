@@ -1,5 +1,4 @@
 #include <stdbool.h>
-#include <math.h>
 #include <string.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -7,16 +6,14 @@
 #include <iron/types.h>
 #include <iron/log.h>
 #include <iron/mem.h>
-#include <iron/fileio.h>
 #include <iron/utils.h>
 #include <iron/linmath.h>
 #include "octree.h"
 #include "list_index.h"
 #include "move_request.h"
-#include "gl_utils.h"
 #include "list_entity.h"
 #include "main.h"
-
+#include "game_context.h"
 list_index octree_index_payload_list(const octree_index index){
   u32 list_id = octree_index_get_payload(index)[0];
   return (list_index){list_id, list_id, index};

@@ -1,28 +1,23 @@
 #include <stdbool.h>
-#include <math.h>
-#include <string.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdarg.h>
 #include <iron/types.h>
 #include <GL/glew.h>
-#include <GLFW/glfw3.h>
 #include <iron/log.h>
 #include <iron/mem.h>
-#include <iron/fileio.h>
-#include <iron/time.h>
 #include <iron/utils.h>
 #include <iron/linmath.h>
 #include <iron/math.h>
 #include "octree.h"
 #include "list_index.h"
-
-#include "move_request.h"
 #include "gl_utils.h"
 #include "list_entity.h"
 #include "main.h"
-#include "item_list.h"
 #include "stb_image.h"
+#include "game_context.h"
+#include "render.h"
+simple_shader simple_shader_instance;
 
 u32 blend_color32(double r, u32 a, u32 b){
   u8 r2 = r * 255;
@@ -109,7 +104,7 @@ void render_color(u32 color, float size, vec3 p){
     }
     return;
   }
-  var shader = game_ctx->prog;
+  var shader = simple_shader_instance;
   if(type == GAME_ENTITY_TILE){
     
     color = id;

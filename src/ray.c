@@ -15,13 +15,10 @@
 #include "move_request.h"
 #include "octree.h"
 #include "list_index.h"
-
 #include "list_entity.h"
-#include "gl_utils.h"
 #include "main.h"
-#include "item_list.h"
 #include "ray.h"
-
+#include "game_context.h"
 
 // Recursively traces a ray through the octree. it will only iterate down through the first element in index.
 // as it iterates down, it will add elements to indexes, so index should be at least big enough to

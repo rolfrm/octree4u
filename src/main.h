@@ -56,10 +56,6 @@ typedef struct{
   entity_sub_offset * entity_sub_ctx;
   list_entity * lists;
 
-  simple_shader prog;
-  u32 glow_tex;
-  u32 glow_fb;
-  u32 texatlas;
   u32 window_width, window_height;
 }game_context;
 
@@ -74,10 +70,6 @@ u32 entities_alloc(entities * ctx);
 u32 entity_sub_offset_alloc(entity_sub_offset * ctx);
 entity_sub_offset * entity_sub_offset_new();
 void entity_sub_offset_destroy(entity_sub_offset ** sub);
-
-void rendervoxel(const octree_index_ctx * ctx);
-void render_color(u32 color, float size, vec3 p);
-extern game_context * game_ctx;
 
 game_entity_kind get_type(u32 id);
 
